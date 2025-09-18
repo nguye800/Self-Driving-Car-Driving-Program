@@ -1,0 +1,9 @@
+# Requirements for Raspberry Pi 5 **with GUI windows** (cv2.imshow)
+# Compatible set that works with NumPy 2.x
+numpy>=2.0,<3
+opencv-python>=4.8,<5
+matplotlib>=3.9
+contourpy>=1.3
+# Optional if you use them:
+# scipy>=1.14
+# pillow>=10
