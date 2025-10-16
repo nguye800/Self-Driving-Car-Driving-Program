@@ -9,9 +9,9 @@ class Motor():
         INB = inb
 
         #motor control
-        pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0)
-        in1 = DigitalOutputDevice(INA)
-        in2 = DigitalOutputDevice(INB)
+        self.pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0)
+        self.in1 = DigitalOutputDevice(INA)
+        self.in2 = DigitalOutputDevice(INB)
 
         print("Motor initialized!")
 
