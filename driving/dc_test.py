@@ -74,3 +74,15 @@ if __name__ == "__main__":
     in2.off()
 
     print("Motor stopped.")
+
+    in1.off()
+    in2.on()
+    
+    pwm.value = 0.25
+    print("Motor should be spinning now!")
+    time.sleep(5)
+
+    # Stop the motor
+    pwm.value = 0.0
+    in1.off()
+    in2.off()
