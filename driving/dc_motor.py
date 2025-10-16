@@ -19,7 +19,7 @@ class Motor:
         fault_pin: int | None = None,
         enc_a: int | None = None,
         enc_b: int | None = None,
-        pwm_freq: int = 20000
+        pwm_freq: int = 5000
     ):
         self.pwm = PWMOutputDevice(enable_pwm, frequency=pwm_freq, initial_value=0.0)
         self.in_a = DigitalOutputDevice(in_a, initial_value=False)
