@@ -40,10 +40,10 @@ class Motor():
 
 if __name__ == "__main__":
     ENA = 12   # 
-    IN1 = 3    # 
-    IN2 = 4    # 
+    IN1 = 23    # 
+    IN2 = 24   # 
 
-    motor1 = Motor(ENA, IN1, IN2)
+    # motor1 = Motor(ENA, IN1, IN2)
     
     # print("starting demo")
     # motor1.forward()
@@ -64,25 +64,25 @@ if __name__ == "__main__":
     in2.off()
 
 # # Set speed (50% duty cycle)
-    pwm.value = 0.25
+    pwm.value = 0.5
     print("Motor should be spinning now!")
-    time.sleep(5)
+    time.sleep(50)
 
 # # Stop the motor
-    pwm.value = 0.0
-    in1.off()
-    in2.off()
+    # pwm.value = 0.0
+    # in1.off()
+    # in2.off()
 
-    print("Motor stopped.")
+    # print("Motor stopped.")
 
-    in1.off()
-    in2.on()
+    # in1.off()
+    # in2.on()
     
-    pwm.value = 0.25
-    print("Motor should be spinning now!")
-    time.sleep(5)
+    # pwm.value = 0.25
+    # print("Motor should be spinning now!")
+    # time.sleep(5)
 
-    # Stop the motor
-    pwm.value = 0.0
-    in1.off()
-    in2.off()
+    # # Stop the motor
+    # pwm.value = 0.0
+    # in1.off()
+    # in2.off()
