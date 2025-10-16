@@ -33,7 +33,7 @@ class Motor:
         # default: coast
         self.coast()
 
-    def set_speed(self, duty: float):
+    def set_speed(self, duty: float=0.5):
         """Set PWM duty (0..1)."""
         self.pwm.value = max(0.0, min(1.0, float(duty)))
 
