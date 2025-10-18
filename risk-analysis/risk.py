@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import sys
 from collections import deque
+import math
 
 '''
 Risk Level Flags
@@ -74,6 +75,62 @@ def find_objects(disp_map, disp_margin):
                 objects.append((avg_distance, startx, starty, maxx-startx, maxy-starty))
 
     return objects
+
+def sigmoid(x): 
+    return 1.0 / (1.0 + math.exp(-x))
+
+def compute_risks(objects, img_w, img_h,
+                  wA=1.0, wP=2.0, wC=0.5, wM=2.0,
+                  alpha=1.0, beta=1.0, k=6.0,
+                  eps_dist=0.1, sigma_c=0.5,
+                  use_motion=False):
+    """
+    objects: list of tuples (distance_m, x, y, w)
+    returns: list of dicts with risk and fields
+    """
+    out = []
+    for obj in objects:
+        if use_motion and len(obj) >= 6:
+            dist, x, y, w, h, vz = obj
+        else:
+            dist, x, y, w, h = obj[:5]
+            vz = None
+
+        # 1) area
+        A = max(0.0, (w * h) / (img_w * img_h))
+
+        # 2) proximity inverse distance + epsilon to avoid explosion of value
+        P = 1.0 / max(dist + eps_dist, eps_dist)
+
+        # 3) center bias (horizontal only here)
+        cx = (x + w/2.0) / img_w          # [0,1]
+        cx_norm = 2.0*cx - 1.0            # [-1,1]
+        C = math.exp(-0.5 * (cx_norm / sigma_c)**2)
+
+        # 4) motion term (optional)
+        # if use_motion and vz is not None and vz > 0:  # approaching (positive towards camera)
+        #     ttc = dist / max(vz, 1e-3)
+        #     M = sigmoid(1.0 / max(ttc, 1e-3))
+        # else:
+        #     M = 1.0  # neutral if unknown
+
+        # Combine (additive form recommended for easy tuning)
+        lin = wA * (A ** alpha) + wP * (P ** beta) + wC * C #+ wM * M - wM  # subtract wM so M~1 doesn't dominate
+        R = sigmoid(k * lin)
+
+        out.append({
+            "distance_m": dist,
+            "bbox": (x, y, w, h),
+            "area_norm": A,
+            "proximity": P,
+            "center_bias": C,
+            #"motion_term": M,
+            "risk": R
+        })
+
+    # Sort by risk descending
+    out.sort(key=lambda d: d["risk"], reverse=True)
+    return out
 
 
 # assumes disparity in px
