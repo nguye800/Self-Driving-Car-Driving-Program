@@ -11,7 +11,7 @@ SERVICE_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
 
 
 class BluetoothPos:
-    def __init__(self, device_address=KNOWN_DEVICE_ADDR, service_uuid=SERVICE_UUID):
+    def __init__(self, service_uuid=SERVICE_UUID):
         self.server_sock = None
         self.client_sock = None
         self.client_info = None
@@ -19,70 +19,64 @@ class BluetoothPos:
         # self.motors = Motors(forward=(17, 18), backward=(22, 23)) # Example GPIO pins
 
 
-    # def bt_server_start(self):
-    #     """
-    #     Initializes the server, advertises the service,
-    #     and waits for a single client (laptop/phone) to connect.
+    def bt_server_start(self):
+        """
+        Initializes the server, advertises the service,
+        and waits for a single client (laptop/phone) to connect.
         
-    #     Returns:
-    #         True if connection is successful, False otherwise.
-    #     """
-    #     try:
-    #         self.server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-    #         self.server_sock.bind(("", bluetooth.PORT_ANY))
-    #         self.server_sock.listen(1)
-    #         port = self.server_sock.getsockname()[1]
-
-    #         # Advertise the service using the UUID
-    #         bluetooth.advertise_service(self.server_sock, "RaspiBtSrv",
-    #                            service_id=self.service_uuid,
-    #                            service_classes=[self.service_uuid, bluetooth.SERIAL_PORT_CLASS],
-    #                            profiles=[bluetooth.SERIAL_PORT_PROFILE],
-    #                            )
+        Returns:
+            True if connection is successful, False otherwise.
+        """
+        STATIC_CHANNEL = 1
+        try:
+            self.server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+            self.server_sock.bind(("", STATIC_CHANNEL))
+            self.server_sock.listen(1)
+            port = self.server_sock.getsockname()[1]
                                
-    #         print(f"Waiting for connection on RFCOMM channel {port}...")
-    #         print("Ensure Pi is discoverable (`bluetoothctl discoverable on`)")
+            print(f"Waiting for connection on RFCOMM channel {port}...")
+            print("Ensure Pi is discoverable (`bluetoothctl discoverable on`)")
             
-    #         # This is a blocking call. The script will pause here until
-    #         # your computer/client successfully connects.
-    #         self.client_sock, self.client_info = self.server_sock.accept()
-    #         print(f"Accepted connection from {self.client_info}")
-    #         return True
+            # This is a blocking call. The script will pause here until
+            # your computer/client successfully connects.
+            self.client_sock, self.client_info = self.server_sock.accept()
+            print(f"Accepted connection from {self.client_info}")
+            return True
             
-    #     except Exception as e:
-    #         print(f"Error starting server or accepting connection: {e}")
-    #         self.close()
-    #         return False
+        except Exception as e:
+            print(f"Error starting server or accepting connection: {e}")
+            self.close()
+            return False
 
-    # def handle_connection_loop(self):
-    #     """
-    #     Handles the "ping-pong" logic for an established connection.
-    #     This loop will run as long as the client is connected.
-    #     """
-    #     if not self.client_sock:
-    #         print("Error: No client connected. Call start_server_and_wait() first.")
-    #         return
+    def handle_connection_loop(self):
+        """
+        Handles the "ping-pong" logic for an established connection.
+        This loop will run as long as the client is connected.
+        """
+        if not self.client_sock:
+            print("Error: No client connected. Call start_server_and_wait() first.")
+            return
 
-    #     print("Connection active. Listening for 'PING' requests...")
-    #     try:
-    #         while True:
-    #             data = self.client_sock.recv(1024)
-    #             if not data:
-    #                 print("Client disconnected.")
-    #                 break
+        print("Connection active. Listening for 'PING' requests...")
+        try:
+            while True:
+                data = self.client_sock.recv(1024)
+                if not data:
+                    print("Client disconnected.")
+                    break
                 
-    #             # This is the core responder logic for distance measurement
-    #             if data == b'PING':
-    #                 self.client_sock.send(b'PONG')
-    #             else:
-    #                 # You can handle other commands here
-    #                 print(f"Received command: {data.decode('utf-8')}")
-    #                 self.client_sock.send(b'CMD_ACK') # Acknowledge command
+                # This is the core responder logic for distance measurement
+                if data == b'PING':
+                    self.client_sock.send(b'PONG')
+                else:
+                    # You can handle other commands here
+                    print(f"Received command: {data.decode('utf-8')}")
+                    self.client_sock.send(b'CMD_ACK') # Acknowledge command
 
-    #     except IOError:
-    #         print("Connection lost.")
-    #     finally:
-    #         self.close()
+        except IOError:
+            print("Connection lost.")
+        finally:
+            self.close()
 
     # def get_connection(self):
     #     """
@@ -91,17 +85,17 @@ class BluetoothPos:
     #     """
     #     return self.client_sock
 
-    # def close(self):
-    #     """
-    #     Closes all open sockets to clean up.
-    #     """
-    #     if self.client_sock:
-    #         self.client_sock.close()
-    #         self.client_sock = None
-    #     if self.server_sock:
-    #         self.server_sock.close()
-    #         self.server_sock = None
-    #     print("Sockets closed.")
+    def close(self):
+        """
+        Closes all open sockets to clean up.
+        """
+        if self.client_sock:
+            self.client_sock.close()
+            self.client_sock = None
+        if self.server_sock:
+            self.server_sock.close()
+            self.server_sock = None
+        print("Sockets closed.")
 
     def measure_distance(bt_connection):
         """
@@ -204,3 +198,8 @@ class BluetoothPos:
     #         # control_motors(turn_direction, turn_duration)
         
     #     return target_loc, p2 # Return target location and car's final position
+
+if __name__ == "__main__":
+    bt = BluetoothPos()
+
+    bt.bt_server_start()

@@ -1,17 +1,17 @@
 from ultralytics import YOLO
 import cv2
+from picamera2 import Picamera2
 
 # Load YOLO model (you can use yolo11n.pt or yolov8m.pt)
 model = YOLO("yolo11n.pt")
 
 # Open webcam
-cap = cv2.VideoCapture(0)
+cap = Picamera2(0)
+cap.configure(cap.create_preview_configuration(raw={"size":(4608,2592)},main={"format":'RGB888',"size": (1280,720)}))
+cap.start()
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("Camera read failed")
-        break
+    frame = cap.capture_array()
 
     # Run inference
     results = model(frame)
@@ -49,5 +49,5 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-cap.release()
+cap.stop()
 cv2.destroyAllWindows()
