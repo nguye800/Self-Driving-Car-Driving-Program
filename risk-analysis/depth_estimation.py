@@ -17,7 +17,7 @@ max-location x index from matchTemplate (0..numdisp), not adjusted by `mindisp`.
 import sys
 import cv2
 import numpy as np
-from picamera2 import Picamera2
+# from picamera2 import Picamera2
 import time
 
 def compute_dispmap_sgbm(grayL, grayR, minDisp=16, numDisp=200, blocksize=5):
@@ -97,15 +97,6 @@ def rpi_camera(camera):
     picam2.start()
 
     return picam2
-    
-    # time.sleep(2)
-
-    # img = picam2.capture_array()        
-    # cv2.imshow("output", img)
-    # cv2.waitKey(0)
-
-    # picam2.stop()
-    # picam2.close()
 
 
 def test_dual_cameras(camL_index=0, camR_index=1, record=False):
@@ -176,12 +167,16 @@ def initialize_cam(cap):
     cap.set(cv2.CAP_PROP_FPS, 30)
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
-def show_dispmap_colorized(dispmap: np.ndarray, window_name: str = "disparity_map") -> None:
+def show_dispmap_colorized(dispmap: np.ndarray, window_name: str = "disparity_map", show=False):
     # Normalize to 0..255 and apply JET colormap
     disp_norm = cv2.normalize(dispmap, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
     disp_color = cv2.applyColorMap(disp_norm, cv2.COLORMAP_JET)
-    cv2.imshow(window_name, disp_color)
-    cv2.waitKey(1)
+
+    if show:
+        return disp_color
+    else:
+        cv2.imshow(window_name, disp_color)
+        cv2.waitKey(1)
 
 
 if __name__ == "__main__":
