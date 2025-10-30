@@ -154,7 +154,7 @@ if __name__ == "__main__":
             s1, s2 = drive.encoder_steps()
             print(f"{tag} | enc1={s1} enc2={s2} | ok={drive.ok()}")
 
-        drive.forward(0.5);  status("Forward"); time.sleep(2)
+        drive.forward(1);  status("Forward"); time.sleep(300)
         drive.turn_left(0.5); status("Left");    time.sleep(1.5)
         drive.turn_right(0.5);status("Right");   time.sleep(1.5)
         drive.backward(0.5); status("Back");     time.sleep(2)

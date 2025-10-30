@@ -1,14 +1,8 @@
-from depth_estimation import compute_dispmap
-import cv2
-import numpy as np
-import sys
-from collections import deque
 import math
 from yolo_sgm import detect_obj
 from ultralytics import YOLO
 # from picamera2 import Picamera2
-from depth_estimation import rpi_camera, compute_dispmap_sgbm, initialize_cam
-import numpy as np
+from depth_estimation import rpi_camera
 
 baseline = 0.05 # meters
 pixel_pitch = 0.0000014 # meters/px
@@ -41,7 +35,7 @@ def compute_risks(objects, img_w=1280, img_h=720,
         x1,y1,x2,y2 = obj["bounding_box"]
         disparity = obj["avg_disparity"]
 
-        # 1) area
+        # 1) areadetect_obj
         A = max(0.0, ((x2-x1) * (y2-y1)) / (img_w * img_h))
 
         # 2) proximity inverse distance + epsilon to avoid explosion of value

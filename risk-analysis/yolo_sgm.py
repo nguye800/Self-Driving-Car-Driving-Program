@@ -9,11 +9,11 @@ MIN_DISP_THRESHOLD = 50   # Adjust based on your camera setup
 MAX_DISP_THRESHOLD = 200
 
 # Load YOLO model (you can use yolo11n.pt or yolov8m.pt)
-model = YOLO("yolo11n.pt")
+# model = YOLO("yolo11n.pt")
 
-# Open webcam
-capL = rpi_camera(1)
-capR = rpi_camera(0)
+# # Open webcam
+# capL = rpi_camera(1)
+# capR = rpi_camera(0)
 
 # capL = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 # capR = cv2.VideoCapture(0, cv2.CAP_DSHOW)

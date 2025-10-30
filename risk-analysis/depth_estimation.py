@@ -17,7 +17,7 @@ max-location x index from matchTemplate (0..numdisp), not adjusted by `mindisp`.
 import sys
 import cv2
 import numpy as np
-# from picamera2 import Picamera2
+from picamera2 import Picamera2
 import time
 
 def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):

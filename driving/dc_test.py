@@ -43,37 +43,39 @@ if __name__ == "__main__":
     IN1 = 3    # 
     IN2 = 4   # 
 
-    motor1 = Motor(ENA, IN1, IN2)
+    # motor1 = Motor(ENA, IN1, IN2)
     
-    print("starting demo")
-    motor1.forward()
-    motor1.stop()
-    motor1.backward()
-    motor1.stop()
+    # print("starting demo")
+    # motor1.forward()
+    # motor1.stop()
+    # motor1.backward()
+    # motor1.stop()
 
 
-# # Create the motor control pins
-#     pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0)
-#     in1 = DigitalOutputDevice(IN1)
-#     in2 = DigitalOutputDevice(IN2)
+# Create the motor control pins
+    pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0) 
+    in1 = DigitalOutputDevice(IN1) # ENABLE
+    in2 = DigitalOutputDevice(IN2) # DISABLE
+    sleep = DigitalOutputDevice(5) # SLEEP
+    
+    print("Starting motor test...")
 
-#     print("Starting motor test...")
+# Set direction: forward
+    sleep.on()
 
-# # # Set direction: forward
-#     in1.on()
-#     in2.off()
+    in1.on()
+    in2.off()
+# Set speed (50% duty cycle)
+    pwm.value = 0.5
+    print("Motor should be spinning now!")
+    time.sleep(300)
 
-# # # Set speed (50% duty cycle)
-#     pwm.value = 0.5
-#     print("Motor should be spinning now!")
-#     time.sleep(50)
+# Stop the motor
+    pwm.value = 0.0
+    in1.off()
+    in2.off()
 
-# # Stop the motor
-    # pwm.value = 0.0
-    # in1.off()
-    # in2.off()
-
-    # print("Motor stopped.")
+    print("Motor stopped.")
 
     # in1.off()
     # in2.on()
