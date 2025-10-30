@@ -1,38 +1,32 @@
-import bluetooth
 import time
-import numpy as np
 import asyncio
-from blessed import (
-    Peripheral,
-    GATTService,
-    GATTCharacteristic,
-    GATTCharacteristicProperties as GcProps,
-    GATTAttributePermissions as GaPerms
-)
+from bluez_peripheral.peripheral import Peripheral
+from bluez_peripheral.service import Service
+from bluez_peripheral.characteristic import Characteristic
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
-SERVICE_UUID = '0000aaaa-0000-1000-8000-00805f9b34fb'
-PING_CHAR_UUID    = '0000aa01-0000-1000-8000-00805f9b34fb'
-PONG_CHAR_UUID    = '0000aa02-0000-1000-8000-00805f9b34fb'
+SERVICE_UUID = 'b07498ca-ad5b-474e-940d-16f1a71141e0'
+PING_CHAR_UUID    = 'c1ff12bb-3ed8-46e5-b4f9-a6ca6092d345'
+PONG_CHAR_UUID    = 'd7add780-b042-4876-aae1-112855353cc1'
 
 ping_start: int = 0
-ping_characteristic: GATTCharacteristic = None
+ping_char_global: Characteristic = None
+subscribed: bool = False
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
 KNOWN_DEVICE_ADDR = "XX:XX:XX:XX:XX:XX" # MAC address of the user's computer
 
-class PongCharacteristic(GATTCharacteristic):
+class PongCharacteristic(Characteristic):
     """
     This is the "PONG" characteristic from the web app
     """
     def __init__(self, service):
         super().__init__(
             PONG_CHAR_UUID,
-            GcProps.WRITE,
-            GaPerms.WRITEABLE,
+            ["write-without-response"],
             service
         )
 
@@ -42,89 +36,83 @@ class PongCharacteristic(GATTCharacteristic):
         """
         global ping_start
         
-        # 1. Get the end time IMMEDIATELY
         end_time_ns = time.perf_counter_ns()
-        
-        # 2. Calculate the round-trip time in nanoseconds
         rtt_ns = end_time_ns - ping_start
-        
-        # 3. Convert to milliseconds for printing
         rtt_ms = rtt_ns / 1_000_000.0
         
         print(f"Pi-measured RTT: {rtt_ms:.2f} ms")
     
-class PingCharacteristic(GATTCharacteristic):
+class PingCharacteristic(Characteristic):
     """
     This is the "PING" characteristic sent to the web app
     """
     def __init__(self, service):
         super().__init__(
             PING_CHAR_UUID,
-            GcProps.NOTIFY, 
-            GaPerms.READABLE,
+            ["notify"],
             service
         )
-        self.value = b'Ready'
+    def notify_change(self, notifying):
+        """
+        This function is called when the client subscribes/unsubscribes.
+        """
+        global subscribed
+        subscribed = notifying
+        if notifying:
+            print("Client subscribed")
+        else:
+            print("Client unsubscribed")
 
 async def ping_loop(peripheral: Peripheral):
     """
     This is a separate task that pings the client every 2 seconds.
     """
-    global pi_ping_start_time_ns, pi_ping_characteristic
+    global ping_start, ping_char_global, subscribed
     
     while True:
         await asyncio.sleep(2) # Wait 2 seconds
         
-        if peripheral.is_connected and pi_ping_characteristic is not None:
+        if peripheral.is_connected and subscribed and ping_char_global is not None:
             try:
-                # 1. Get the start time IMMEDIATELY before sending
                 pi_ping_start_time_ns = time.perf_counter_ns()
-                
-                # 2. Update the characteristic's value
-                pi_ping_characteristic.value = b'PING'
-                
-                # 3. Send the PING notification
-                peripheral.notify(pi_ping_characteristic)
-                
-                # print("Sent PING, waiting for PONG...") # Uncomment for debugging
+                ping_char_global.notify(b'PING')
+                             
             except Exception as e:
                 print(f"Error sending PING: {e}")
 
 async def main():
-    global pi_ping_characteristic
+    global ping_char_global
 
-    # 1. Create the Peripheral (the server)
-    periph = Peripheral(name="PiPingerTest")
+    periph = Peripheral("PiPingerTest")
     
-    # 2. Create the Service
-    service = GATTService(SERVICE_UUID)
+    service = Service(SERVICE_UUID, periph)
 
-    # 3. Create and add Characteristics to the service
     pong_char = PongCharacteristic(service)
     ping_char = PingCharacteristic(service)
-    pi_ping_characteristic = ping_char # Store global reference
+    ping_char_global = ping_char # Store global reference
     
     service.add_characteristic(ping_char)
-    service.add_characteristic(pong_char)
-    
-    # 4. Add the service to the peripheral
+    service.add_characteristic(pong_char)    
     periph.add_service(service)
 
-    # 5. Start advertising
+    #advertising
     print("Starting BLE Server... Advertising as 'PiPingerTest'")
-    print("Press Ctrl+C to stop.")
-    await periph.start()
-    
-    # 6. Start the separate pinging task
-    # This loop will run in the background
-    ping_task = asyncio.create_task(ping_loop(periph))
     
     try:
-        await periph.wait_for_stop()
+        # Start advertising and run the main loop.
+        await periph.start()
+        
+        # Start the background pinging task.
+        ping_task = asyncio.create_task(ping_loop(periph))
+        
+        # Wait for the peripheral to be stopped (e.g., by Ctrl+C)
+        await periph.wait_for_disconnect()
+        
     except KeyboardInterrupt:
         print("Stopping server...")
     finally:
-        ping_task.cancel() # Stop the ping loop
+        if 'ping_task' in locals():
+            ping_task.cancel()
         await periph.stop()
 
 if __name__ == "__main__":
