@@ -7,8 +7,8 @@ from depth_estimation import rpi_camera, compute_dispmap_sgbm, initialize_cam
 model = YOLO("yolo11n.pt")
 
 # Open webcam
-capL = rpi_camera(0)
-capR = rpi_camera(1)
+capL = rpi_camera(1)
+capR = rpi_camera(0)
 
 # capL = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 # capR = cv2.VideoCapture(0, cv2.CAP_DSHOW)

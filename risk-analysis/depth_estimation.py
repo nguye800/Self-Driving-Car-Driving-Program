@@ -20,25 +20,44 @@ import numpy as np
 # from picamera2 import Picamera2
 import time
 
-def compute_dispmap_sgbm(grayL, grayR, minDisp=16, numDisp=200, blocksize=5):
+def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):
     blocksize = max(3, blocksize | 1)
     P1 = 8 * blocksize * blocksize
     P2 = 32 * blocksize * blocksize
+    
     sgbm = cv2.StereoSGBM_create(
         minDisparity=minDisp,
-        numDisparities=((numDisp + 15)//16)*16,
+        numDisparities=numDisp,
         blockSize=blocksize,
         P1=P1, P2=P2,
-        disp12MaxDiff=1,          # set to -1 to be denser (more outliers)
-        uniquenessRatio=8,        # lower (3–8) for density; higher (10–15) for precision
-        speckleWindowSize=50,     # start small (0–50); raise later to clean up
-        speckleRange=32,
+        disp12MaxDiff=1,
+        uniquenessRatio=12,
+        speckleWindowSize=100,
+        speckleRange=1,
         preFilterCap=31,
         mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
     )
+    
     disp16 = sgbm.compute(grayL, grayR)
-    disp16[disp16 < (minDisp<<4)] = minDisp<<4
-    return cv2.normalize(disp16, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+    
+    # Convert to float and scale (disparity is in 16-bit fixed point)
+    disp_float = disp16.astype(np.float32) / 16.0
+    
+    # Mask invalid disparities (SGBM uses negative values for invalid)
+    valid_mask = disp_float >= minDisp
+    
+    # Normalize only valid disparities
+    if valid_mask.any():
+        disp_normalized = np.zeros_like(disp_float, dtype=np.uint8)
+        valid_disp = disp_float[valid_mask]
+        min_val, max_val = valid_disp.min(), valid_disp.max()
+        
+        if max_val > min_val:
+            disp_normalized[valid_mask] = ((valid_disp - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+        
+        return disp_normalized
+    else:
+        return np.zeros(disp_float.shape, dtype=np.uint8)
 
 def test_camera(cam):
     # Get the default frame width and height# Get the default frame width and height
@@ -187,9 +206,9 @@ if __name__ == "__main__":
     # test_dual_cameras()
     # sys.exit(main())
     # Downscale first for speed
-    capL = rpi_camera(0)   # left camera index
+    capL = rpi_camera(1)   # left camera index
     # initialize_cam(capL)
-    capR = rpi_camera(1)   # right camera index 1 (0 for testing bc only one camera)
+    capR = rpi_camera(0)   # right camera index 1 (0 for testing bc only one camera)
     # initialize_cam(capR)
     while True:
         frameL = capL.capture_array()
