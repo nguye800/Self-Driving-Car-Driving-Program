@@ -29,7 +29,7 @@ def compute_z(disparity_normalized, min_disp=0, num_disp=128):
 def compute_risks(objects, img_w=1280, img_h=720,
                   min_disp=0, num_disp=128,
                   wA=0.2, wP=0.7, wC=0.1, k=3.0,
-                  eps_dist=0.1, sigma_c=0.5, max_prox=0.2):
+                  eps_dist=0.1, sigma_c=0.5, max_prox=5.0):
     """
     objects: dictionary "object_type" "bounding_box" "avg_disparity
     returns: list of dicts with risk and fields
@@ -44,8 +44,7 @@ def compute_risks(objects, img_w=1280, img_h=720,
         A = max(0.0, ((x2-x1) * (y2-y1)) / (img_w * img_h))
 
         # 2) proximity inverse distance + epsilon to avoid explosion of value
-        P_raw = 1.0 / max(compute_z(disparity, min_disp, num_disp) + eps_dist, eps_dist)
-        P = min(P_raw / max_prox, 1.0)
+        P = 1.0 - min(compute_z(disparity, min_disp, num_disp) / max_prox, 1.0)
 
         # 3) center bias (horizontal only here)
         cx = (x1 + (x2-x1)/2.0) / img_w  # [0,1]
