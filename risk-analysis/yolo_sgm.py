@@ -2,6 +2,11 @@ from ultralytics import YOLO
 import cv2
 # from picamera2 import Picamera2
 from depth_estimation import rpi_camera, compute_dispmap_sgbm, initialize_cam
+import numpy as np
+
+# Map disparity to color using expected depth range
+MIN_DISP_THRESHOLD = 50   # Adjust based on your camera setup
+MAX_DISP_THRESHOLD = 200
 
 # Load YOLO model (you can use yolo11n.pt or yolov8m.pt)
 model = YOLO("yolo11n.pt")
@@ -43,12 +48,19 @@ while True:
         class_id = int(box.cls[0])
         object_type = results[0].names[class_id]
 
-        # find avg disparity of the box
-        total = 0
-        for x in range(int(x1), int(x2)):
-            for y in range(int(y1), int(y2)):
-                total += dispmap[y][x] # image arrays indexed in reverse
-        box_disp = int(total // ((x2-x1)*(y2-y1)))
+        # Find avg disparity of the box
+        box_region = dispmap[int(y1):int(y2), int(x1):int(x2)]
+        valid_disparities = box_region[box_region > 0]  # Filter out invalid pixels
+        if valid_disparities.size == 0:
+            continue  # No valid depth data in this box
+        box_disp = int(valid_disparities.mean())
+
+        # Clamp and normalize
+        # Draw detections with outline only
+        disp_normalized = np.clip((box_disp - MIN_DISP_THRESHOLD) / (MAX_DISP_THRESHOLD - MIN_DISP_THRESHOLD), 0, 1)
+        color = (int((1-disp_normalized)*255), 0, int(disp_normalized*255))  # Red=close, Blue=far
+        # color = (255 - box_disp, 0, box_disp)  # close=red, far=blue
+        cv2.rectangle(frameL, (int(x1), int(y1)), (int(x2), int(y2)), color, 3)  # Outline only
 
         # Store result
         # detections.append({
@@ -56,11 +68,12 @@ while True:
         #     "bounding_box": (int(x1), int(y1), int(x2), int(y2)),
         #     "avg_disparity": box_disp,
         # })
-
-        # Draw detections
-        color = (255 - box_disp, 0, box_disp) # close red, far blue
-        cv2.rectangle(frameL, (int(x1), int(y1)), (int(x2), int(y2)), color, -1)
-        cv2.putText(frameL, object_type, (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        
+        # Add label with background for readability
+        label = f"{object_type} d:{box_disp}"
+        (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.rectangle(frameL, (int(x1), int(y1)-label_h-10), (int(x1)+label_w, int(y1)), color, -1)
+        cv2.putText(frameL, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     # Display annotated frame
     cv2.imshow("YOLO Live Detection", frameL)
