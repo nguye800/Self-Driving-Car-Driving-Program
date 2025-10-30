@@ -67,7 +67,7 @@ def check_risk(out):
     risk_obj = []
     for i in range(len(out)):
         if out[i]["risk"] >= RISK_THRESHOLD:
-            print("COLLISION RISK: ", out[i]["risk"], out[i]["distance_m"], out[i]["bbox"])
+            print("COLLISION RISK: ", out[i])
             risk_obj.append(out[i])
     return risk_obj
 
