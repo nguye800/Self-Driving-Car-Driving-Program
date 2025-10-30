@@ -28,7 +28,7 @@ def compute_z(disparity_normalized, min_disp=0, num_disp=128):
 
 def compute_risks(objects, img_w=1280, img_h=720,
                   min_disp=0, num_disp=128,
-                  wA=1.0, wP=1.0, wC=0.5,
+                  wA=0.25, wP=0.8, wC=0.1,
                   alpha=1.0, beta=1.0, k=2.0,
                   eps_dist=0.1, sigma_c=0.5):
     """
