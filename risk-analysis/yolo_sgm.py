@@ -75,6 +75,7 @@ def detect_obj(capL, capR, model, display=True):
             cv2.putText(frameL, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         if display:
+            cv2.moveWindow("YOLO Live Detection", 100, 100)
             cv2.imshow("YOLO Live Detection", frameL)
 
     return detections
