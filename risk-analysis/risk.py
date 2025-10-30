@@ -1,4 +1,5 @@
 import math
+import cv2
 from yolo_sgm import detect_obj
 from ultralytics import YOLO
 # from picamera2 import Picamera2
