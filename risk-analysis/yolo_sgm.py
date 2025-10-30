@@ -20,7 +20,7 @@ capR = rpi_camera(0)
 # initialize_cam(capL)
 # initialize_cam(capR)
 
-while True:
+def detect_obj(capL, capR, model, display=True):
     # get depth map
     frameL = capL.capture_array()
     frameR = capR.capture_array()
@@ -55,36 +55,29 @@ while True:
             continue  # No valid depth data in this box
         box_disp = int(valid_disparities.mean())
 
-        # Clamp and normalize
-        # Draw detections with outline only
-        disp_normalized = np.clip((box_disp - MIN_DISP_THRESHOLD) / (MAX_DISP_THRESHOLD - MIN_DISP_THRESHOLD), 0, 1)
-        color = (int((1-disp_normalized)*255), 0, int(disp_normalized*255))  # Red=close, Blue=far
-        # color = (255 - box_disp, 0, box_disp)  # close=red, far=blue
-        cv2.rectangle(frameL, (int(x1), int(y1)), (int(x2), int(y2)), color, 3)  # Outline only
-
         # Store result
-        # detections.append({
-        #     "object_type": object_type,
-        #     "bounding_box": (int(x1), int(y1), int(x2), int(y2)),
-        #     "avg_disparity": box_disp,
-        # })
-        
-        # Add label with background for readability
-        label = f"{object_type} d:{box_disp}"
-        (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-        cv2.rectangle(frameL, (int(x1), int(y1)-label_h-10), (int(x1)+label_w, int(y1)), color, -1)
-        cv2.putText(frameL, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        detections.append({
+            "object_type": object_type,
+            "bounding_box": (int(x1), int(y1), int(x2), int(y2)),
+            "avg_disparity": box_disp,
+        })
 
-    # Display annotated frame
-    cv2.imshow("YOLO Live Detection", frameL)
+        if display:
+            disp_normalized = np.clip((box_disp - MIN_DISP_THRESHOLD) / (MAX_DISP_THRESHOLD - MIN_DISP_THRESHOLD), 0, 1)
+            color = (int((1-disp_normalized)*255), 0, int(disp_normalized*255))  # Red=close, Blue=far
+            # color = (255 - box_disp, 0, box_disp)  # close=red, far=blue
+            cv2.rectangle(frameL, (int(x1), int(y1)), (int(x2), int(y2)), color, 3)  # Outline only
+            
+            # Add label with background for readability
+            label = f"{object_type} d:{box_disp}"
+            (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            cv2.rectangle(frameL, (int(x1), int(y1)-label_h-10), (int(x1)+label_w, int(y1)), color, -1)
+            cv2.putText(frameL, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+            # Display annotated frame
+            cv2.imshow("YOLO Live Detection", frameL)
+
+    return detections
 
     # Print detections in this frame to console
     # print(detections)
-
-    # Exit on pressing 'q'
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-capL.stop()
-capR.stop()
-cv2.destroyAllWindows()
