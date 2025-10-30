@@ -9,11 +9,11 @@ MIN_DISP_THRESHOLD = 50   # Adjust based on your camera setup
 MAX_DISP_THRESHOLD = 200
 
 # Load YOLO model (you can use yolo11n.pt or yolov8m.pt)
-model = YOLO("yolo11n.pt")
+# model = YOLO("yolo11n.pt")
 
-# Open webcam
-capL = rpi_camera(1)
-capR = rpi_camera(0)
+# # Open webcam
+# capL = rpi_camera(1)
+# capR = rpi_camera(0)
 
 # capL = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 # capR = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -74,7 +74,7 @@ def detect_obj(capL, capR, model, display=True):
             cv2.rectangle(frameL, (int(x1), int(y1)-label_h-10), (int(x1)+label_w, int(y1)), color, -1)
             cv2.putText(frameL, label, (int(x1), int(y1)-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            # Display annotated frame
+        if display:
             cv2.imshow("YOLO Live Detection", frameL)
 
     return detections
