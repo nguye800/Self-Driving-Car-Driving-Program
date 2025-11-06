@@ -1,8 +1,11 @@
 import time
 import asyncio
-from bluez_peripheral.peripheral import Peripheral
-from bluez_peripheral.service import Service
-from bluez_peripheral.characteristic import Characteristic
+from typing import Any
+from bless import (
+    BlessServer,
+    GattCharacteristicProperties as GcProps,
+    GATTAttributePermissions as GaPerms
+)
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
@@ -10,110 +13,82 @@ SERVICE_UUID = 'b07498ca-ad5b-474e-940d-16f1a71141e0'
 PING_CHAR_UUID    = 'c1ff12bb-3ed8-46e5-b4f9-a6ca6092d345'
 PONG_CHAR_UUID    = 'd7add780-b042-4876-aae1-112855353cc1'
 
-ping_start: int = 0
-ping_char_global: Characteristic = None
-subscribed: bool = False
+server_instance: BlessServer = None
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
 KNOWN_DEVICE_ADDR = "XX:XX:XX:XX:XX:XX" # MAC address of the user's computer
 
-class PongCharacteristic(Characteristic):
+def write(characteristic: Any, value: bytearray, **kwargs):
     """
-    This is the "PONG" characteristic from the web app
+    Called when the client writes to a characteristic.
+    This is our "PING" handler.
     """
-    def __init__(self, service):
-        super().__init__(
-            PONG_CHAR_UUID,
-            ["write-without-response"],
-            service
-        )
-
-    def write_value(self, value, options):
-        """
-        This function is called when the web app writes data to us.
-        """
-        global ping_start
-        
-        end_time_ns = time.perf_counter_ns()
-        rtt_ns = end_time_ns - ping_start
-        rtt_ms = rtt_ns / 1_000_000.0
-        
-        print(f"Pi-measured RTT: {rtt_ms:.2f} ms")
+    global server_instance
     
-class PingCharacteristic(Characteristic):
-    """
-    This is the "PING" characteristic sent to the web app
-    """
-    def __init__(self, service):
-        super().__init__(
-            PING_CHAR_UUID,
-            ["notify"],
-            service
-        )
-    def notify_change(self, notifying):
-        """
-        This function is called when the client subscribes/unsubscribes.
-        """
-        global subscribed
-        subscribed = notifying
-        if notifying:
-            print("Client subscribed")
-        else:
-            print("Client unsubscribed")
-
-async def ping_loop(peripheral: Peripheral):
-    """
-    This is a separate task that pings the client every 2 seconds.
-    """
-    global ping_start, ping_char_global, subscribed
-    
-    while True:
-        await asyncio.sleep(2) # Wait 2 seconds
+    # Check if this write is for the PING characteristic
+    if characteristic.uuid == PING_CHAR_UUID:
+        # Received a PING from the app.
+        # We don't need to read the value, just respond ASAP.
         
-        if peripheral.is_connected and subscribed and ping_char_global is not None:
+        if server_instance:
             try:
-                pi_ping_start_time_ns = time.perf_counter_ns()
-                ping_char_global.notify(b'PING')
-                             
+                # Get the PONG characteristic
+                pong_char = server_instance.get_characteristic(PONG_CHAR_UUID)
+                
+                # Set its value (Bless requires this before notifying)
+                # We can send any small payload.
+                pong_char.value = b'PONG'
+                
+                # Notify the client
+                # logger.debug("Received PING, sending PONG")
+                asyncio.create_task(server_instance.notify_clients(pong_char))
+                
             except Exception as e:
-                print(f"Error sending PING: {e}")
+                print(f"Error sending PONG: {e}")
 
 async def main():
-    global ping_char_global
+    global server_instance
 
-    periph = Peripheral("PiPingerTest")
-    
-    service = Service(SERVICE_UUID, periph)
+    print("Setting up BLE Peripheral...")
+    server_instance = BlessServer()
+    server_instance.device_name = "PiTest"
 
-    pong_char = PongCharacteristic(service)
-    ping_char = PingCharacteristic(service)
-    ping_char_global = ping_char # Store global reference
-    
-    service.add_characteristic(ping_char)
-    service.add_characteristic(pong_char)    
-    periph.add_service(service)
+    server_instance.write_request_func = write
 
     #advertising
     print("Starting BLE Server... Advertising as 'PiPingerTest'")
     
     try:
         # Start advertising and run the main loop.
-        await periph.start()
+        await server_instance.add_new_service(SERVICE_UUID)
         
-        # Start the background pinging task.
-        ping_task = asyncio.create_task(ping_loop(periph))
-        
-        # Wait for the peripheral to be stopped (e.g., by Ctrl+C)
-        await periph.wait_for_disconnect()
+        await server_instance.add_new_characteristic(
+            SERVICE_UUID,
+            PING_CHAR_UUID,
+            GcProps.WRITE,
+            None,
+            GaPerms.WRITEABLE,
+        )
+
+        await server_instance.add_new_characteristic(
+            SERVICE_UUID,
+            PONG_CHAR_UUID,
+            GcProps.NOTIFY,
+            None,
+            GaPerms.READABLE,
+        )
+
+        await server_instance.start()
+
+        await asyncio.Event().wait() 
         
     except KeyboardInterrupt:
         print("Stopping server...")
     finally:
-        if 'ping_task' in locals():
-            ping_task.cancel()
-        await periph.stop()
+        if server_instance:
+            await server_instance.stop()
 
 if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
