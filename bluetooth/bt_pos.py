@@ -3,7 +3,7 @@ import asyncio
 from typing import Any
 from bless import (
     BlessServer,
-    GattCharacteristicProperties as GcProps,
+    GATTCharacteristicProperties as GcProps,
     GATTAttributePermissions as GaPerms
 )
 # from gpiozero import Motors
@@ -48,12 +48,11 @@ def write(characteristic: Any, value: bytearray, **kwargs):
             except Exception as e:
                 print(f"Error sending PONG: {e}")
 
-async def main():
+async def main(loop):
     global server_instance
 
     print("Setting up BLE Peripheral...")
-    server_instance = BlessServer()
-    server_instance.device_name = "PiTest"
+    server_instance = BlessServer(name="PiTest", loop=loop)
 
     server_instance.write_request_func = write
 
@@ -67,17 +66,17 @@ async def main():
         await server_instance.add_new_characteristic(
             SERVICE_UUID,
             PING_CHAR_UUID,
-            GcProps.WRITE,
+            GcProps.write,
             None,
-            GaPerms.WRITEABLE,
+            GaPerms.writeable,
         )
 
         await server_instance.add_new_characteristic(
             SERVICE_UUID,
             PONG_CHAR_UUID,
-            GcProps.NOTIFY,
+            GcProps.notify,
             None,
-            GaPerms.READABLE,
+            GaPerms.readable,
         )
 
         await server_instance.start()
@@ -92,7 +91,8 @@ async def main():
 
 if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main(loop))
 
 # class BluetoothPos:
 #     def __init__(self, device_address=KNOWN_DEVICE_ADDR, service_uuid=SERVICE_UUID):
