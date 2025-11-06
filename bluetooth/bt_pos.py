@@ -14,39 +14,54 @@ PING_CHAR_UUID    = 'c1ff12bb-3ed8-46e5-b4f9-a6ca6092d345'
 PONG_CHAR_UUID    = 'd7add780-b042-4876-aae1-112855353cc1'
 
 server_instance: BlessServer = None
+ping_start: float = 0.0
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
 KNOWN_DEVICE_ADDR = "XX:XX:XX:XX:XX:XX" # MAC address of the user's computer
 
+async def next_ping():
+    global server_instance, ping_start
+    
+    await asyncio.sleep(1.0)
+
+    if server_instance and await server_instance.is_connected():
+        try:
+            ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
+            ping_char.value = b'\x01'
+
+            ping_start = time.monotonic()
+
+            await server_instance.update_value(ping_char)
+        except Exception as e:
+            print(f"Error: {e}")
+
 def write(characteristic: Any, value: bytearray, **kwargs):
     """
     Called when the client writes to a characteristic.
     This is our "PING" handler.
     """
-    global server_instance
+    global ping_start
     
     # Check if this write is for the PING characteristic
-    if characteristic.uuid == PING_CHAR_UUID:
+    if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
         # We don't need to read the value, just respond ASAP.
         
-        if server_instance:
-            try:
-                # Get the PONG characteristic
-                pong_char = server_instance.get_characteristic(PONG_CHAR_UUID)
-                
-                # Set its value (Bless requires this before notifying)
-                # We can send any small payload.
-                pong_char.value = b'PONG'
-                
-                # Notify the client
-                # logger.debug("Received PING, sending PONG")
-                asyncio.create_task(server_instance.notify_clients(pong_char))
-                
-            except Exception as e:
-                print(f"Error sending PONG: {e}")
+        end = time.monotonic()
+        rtt = (end - ping_start) * 1000
+        if ping_start > 0:
+            print(f"RTT: {rtt:.2f} ms")
+
+        asyncio.create_task(next_ping())
+
+async def on_connect():
+    global server_instance
+    await server_instance.is_connected()
+    print("Client connected!")
+    await asyncio.sleep(2.0)
+    await next_ping()
 
 async def main(loop):
     global server_instance
@@ -57,7 +72,7 @@ async def main(loop):
     server_instance.write_request_func = write
 
     #advertising
-    print("Starting BLE Server... Advertising as 'PiPingerTest'")
+    print("Starting BLE Server... Advertising as 'PiTest'")
     
     try:
         # Start advertising and run the main loop.
@@ -66,20 +81,22 @@ async def main(loop):
         await server_instance.add_new_characteristic(
             SERVICE_UUID,
             PING_CHAR_UUID,
-            GcProps.write,
-            None,
-            GaPerms.writeable,
-        )
-
-        await server_instance.add_new_characteristic(
-            SERVICE_UUID,
-            PONG_CHAR_UUID,
             GcProps.notify,
             None,
             GaPerms.readable,
         )
 
+        await server_instance.add_new_characteristic(
+            SERVICE_UUID,
+            PONG_CHAR_UUID,
+            GcProps.write,
+            None,
+            GaPerms.writeable,
+        )
+
         await server_instance.start()
+
+        asyncio.create_task(on_connect())
 
         await asyncio.Event().wait() 
         
