@@ -3,12 +3,16 @@ import time
 
 class Motor:
     """
-    One DC motor driven by an L293D channel + quadrature encoder.
-    - enable_pwm: PWM pin driving ENA/ENB
-    - in_a, in_b: direction pins to L293D INx
-    - sleep_pin: optional (some carrier boards expose nSLEEP)
-    - fault_pin: optional (active-low; wired as Button pull-up)
-    - enc_a, enc_b: quadrature encoder pins (optional)
+    PH/EN mode:
+      - enable_pwm -> EN/IN1 (PWM): 0 = brake (H,H), 1 = drive; duty controls speed
+      - in_a       -> PH/IN2 (dir): 0 or 1 selects direction
+      - in_b       -> DISABLE (active-HIGH): 1 = Hi-Z (coast), 0 = outputs enabled
+      - sleep_pin  -> nSLEEP (active-HIGH)
+      - fault_pin  -> nFAULT (active-LOW, open-drain; use pull-up)
+      - enc_a/b    -> optional quadrature encoder
+
+    stop(brake=False): brake=False => COAST (Hi-Z via DISABLE=1)
+                       brake=True  => BRAKE (EN=0, DISABLE=0)
     """
     def __init__(
         self,
@@ -19,48 +23,70 @@ class Motor:
         fault_pin: int | None = None,
         enc_a: int | None = None,
         enc_b: int | None = None,
-        pwm_freq: int = 5000
+        pwm_freq: int = 20000  # keep above audible range
     ):
+        # EN/IN1: PWM speed control
         self.pwm = PWMOutputDevice(enable_pwm, frequency=pwm_freq, initial_value=0.0)
-        self.in_a = DigitalOutputDevice(in_a, initial_value=False)
-        self.in_b = DigitalOutputDevice(in_b, initial_value=False)
 
+        # PH/IN2: direction
+        self.dir = DigitalOutputDevice(in_a, initial_value=False)
+
+        # DISABLE: active-HIGH (1 = Hi-Z/coast). Start enabled (LOW).
+        self.disable_pin = DigitalOutputDevice(in_b, initial_value=False)
+
+        # nSLEEP: active-HIGH; default awake
         self.sleep = DigitalOutputDevice(sleep_pin, initial_value=True) if sleep_pin is not None else None
+
+        # nFAULT: active-LOW; use pull-up. Pressed==True when LOW (fault).
         self.fault = Button(fault_pin, pull_up=True) if fault_pin is not None else None
 
+        # optional encoder
         self.encoder = RotaryEncoder(enc_a, enc_b, max_steps=0) if (enc_a is not None and enc_b is not None) else None
 
-        # default: coast
+        # default to COAST per request (Hi-Z via DISABLE=1)
         self.coast()
 
-    def set_speed(self, duty: float=0.5):
-        """Set PWM duty (0..1)."""
-        self.pwm.value = max(0.0, min(1.0, float(duty)))
+    # ---- helpers for output state ----
+    def _enable_outputs(self):
+        if self.sleep: self.sleep.on()        # nSLEEP=1
+        self.disable_pin.off()                # DISABLE=0 (enabled)
+
+    def _disable_outputs(self):
+        self.disable_pin.on()                 # DISABLE=1 (Hi-Z)
+
+    # ---- low-level controls ----
+    def set_speed(self, duty: float = 0.5):
+        """Set PWM duty (0..1) on EN/IN1. EN=0 brakes per truth table."""
+        d = max(0.0, min(1.0, float(duty)))
+        self._enable_outputs()
+        self.pwm.value = d
 
     def forward_dir(self):
-        """Set H-bridge direction to forward (INa=1, INb=0)."""
-        self.in_a.on(); self.in_b.off()
+        """PH/IN2 = 1 (choose as 'forward')."""
+        self._enable_outputs()
+        self.dir.on()
 
     def backward_dir(self):
-        """Set H-bridge direction to backward (INa=0, INb=1)."""
-        self.in_a.off(); self.in_b.on()
+        """PH/IN2 = 0 (choose as 'backward')."""
+        self._enable_outputs()
+        self.dir.off()
 
     def brake(self):
-        """Active brake (INa=INb=1, PWM=0)."""
-        self.in_a.on(); self.in_b.on()
+        """Active brake: EN=0 while enabled (OUT1=H, OUT2=H)."""
+        self._enable_outputs()
         self.pwm.value = 0.0
 
     def coast(self):
-        """Coast (both OUTs Hi-Z on L293D via PWM=0 with one input low)."""
-        self.in_a.off(); self.in_b.off()
+        """True Hi-Z: DISABLE=1 (independent of EN/PH)."""
         self.pwm.value = 0.0
+        self._disable_outputs()
 
     def enable(self):
-        if self.sleep: self.sleep.on()
+        self._enable_outputs()
 
     def disable(self):
         self.coast()
-        if self.sleep: self.sleep.off()
+        if self.sleep: self.sleep.off()       # optional power save
 
     # -------- high-level helpers --------
     def forward(self, speed: float = 0.6):
@@ -82,15 +108,12 @@ class Motor:
         if self.encoder: self.encoder.reset()
 
     def ok(self) -> bool:
-        """True if no fault reported (or no fault pin present)."""
-        return True if self.fault is None else self.fault.is_pressed  # pull-up => pressed means HIGH => OK
+        """True if no fault (nFAULT HIGH). With pull_up=True: is_pressed==True means LOW (fault)."""
+        return True if self.fault is None else (not self.fault.is_pressed)
 
 
 class DriveBase:
-    """
-    Two-motor tank drive (left/right or m1/m2).
-    Offers forward/back/turn/stop primitives using the two Motor instances.
-    """
+    """Two-motor tank drive using DRV8873 in PH/EN mode."""
     def __init__(self, m1: Motor, m2: Motor):
         self.m1 = m1
         self.m2 = m2
@@ -103,13 +126,11 @@ class DriveBase:
         self.m1.disable(); self.m2.disable()
 
     def set_speeds(self, s1: float, s2: float, dirs=("fwd","fwd")):
-        # dirs: tuple of "fwd"/"rev" per motor
-        self.m1.forward_dir() if dirs[0] == "fwd" else self.m1.backward_dir()
-        self.m2.forward_dir() if dirs[1] == "fwd" else self.m2.backward_dir()
+        (self.m1.forward_dir() if dirs[0] == "fwd" else self.m1.backward_dir())
+        (self.m2.forward_dir() if dirs[1] == "fwd" else self.m2.backward_dir())
         self.m1.set_speed(s1)
         self.m2.set_speed(s2)
 
-    # ----- primitives -----
     def forward(self, speed=0.6):
         self.set_speeds(speed, speed, ("fwd","fwd"))
 
@@ -126,7 +147,6 @@ class DriveBase:
         self.m1.stop(brake)
         self.m2.stop(brake)
 
-    # ----- telemetry -----
     def encoder_steps(self):
         return (self.m1.steps(), self.m2.steps())
 
@@ -134,8 +154,9 @@ class DriveBase:
         return self.m1.ok() and self.m2.ok()
 
 
-# M1: ENA=12, IN1=3 (PH), IN2=4 (Disable), SLEEP=5, FAULT=2, ENC A/B = 17/18
-# M2: ENB=13, IN3=7 (PH), IN4=8 (Disable), SLEEP=9, FAULT=6, ENC A/B = 19/20
+# Example wiring (BCM):
+# M1: EN/IN1(PWM)=12, PH/IN2=3, DISABLE=4, nSLEEP=5, nFAULT=2, ENC A/B = 17/18
+# M2: EN/IN1(PWM)=13, PH/IN2=7, DISABLE=8, nSLEEP=9, nFAULT=6, ENC A/B = 19/20
 
 def build_drivebase() -> DriveBase:
     m1 = Motor(
@@ -158,7 +179,11 @@ if __name__ == "__main__":
         drive.turn_left(0.5); status("Left");    time.sleep(1.5)
         drive.turn_right(0.5);status("Right");   time.sleep(1.5)
         drive.backward(0.5); status("Back");     time.sleep(2)
+
+        # Stop: choose coast (Hi-Z) or brake (H,H)
         drive.stop(brake=False); status("Stop (coast)")
+        # drive.stop(brake=True);  status("Stop (brake)")
+
         print("Demo complete. Ctrl+C to exit or reuse DriveBase in your app.")
         while True:
             time.sleep(0.5)
