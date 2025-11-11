@@ -15,6 +15,7 @@ PONG_CHAR_UUID    = 'd7add780-b042-4876-aae1-112855353cc1'
 
 server_instance: BlessServer = None
 ping_start: float = 0.0
+event_loop: asyncio.AbstractEventLoop = None
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
@@ -33,7 +34,7 @@ async def next_ping():
 
             ping_start = time.monotonic()
 
-            await server_instance.update_value(ping_char)
+            await server_instance.update_value(SERVICE_UUID, PING_CHAR_UUID)
         except Exception as e:
             print(f"Error: {e}")
 
@@ -47,24 +48,24 @@ def write(characteristic: Any, value: bytearray, **kwargs):
     # Check if this write is for the PING characteristic
     if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
-        # We don't need to read the value, just respond ASAP.
         
         end = time.monotonic()
         rtt = (end - ping_start) * 1000
         if ping_start > 0:
             print(f"RTT: {rtt:.2f} ms")
 
-        asyncio.create_task(next_ping())
-
 async def on_connect():
     global server_instance
-    await server_instance.is_connected()
+    while not await server_instance.is_connected():
+        await asyncio.sleep(1.0)
     print("Client connected!")
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(5.0)
     await next_ping()
 
 async def main(loop):
-    global server_instance
+    global server_instance, event_loop
+
+    event_loop = loop
 
     print("Setting up BLE Peripheral...")
     server_instance = BlessServer(name="PiTest", loop=loop)
