@@ -154,10 +154,8 @@ class DriveBase:
         return self.m1.ok() and self.m2.ok()
 
 
-# Example wiring (BCM):
 # M1: EN/IN1(PWM)=12, PH/IN2=3, DISABLE=4, nSLEEP=5, nFAULT=2, ENC A/B = 17/18
 # M2: EN/IN1(PWM)=13, PH/IN2=7, DISABLE=8, nSLEEP=9, nFAULT=6, ENC A/B = 19/20
-
 def build_drivebase() -> DriveBase:
     m1 = Motor(
         enable_pwm=12, in_a=3, in_b=4, sleep_pin=5, fault_pin=2, enc_a=17, enc_b=18
@@ -175,7 +173,7 @@ if __name__ == "__main__":
             s1, s2 = drive.encoder_steps()
             print(f"{tag} | enc1={s1} enc2={s2} | ok={drive.ok()}")
 
-        drive.forward(0.5);  status("Forward"); time.sleep(30)
+        drive.forward(0.5);  status("Forward"); time.sleep(0.5)
         drive.turn_left(0.5); status("Left");    time.sleep(1.5)
         drive.turn_right(0.5);status("Right");   time.sleep(1.5)
         drive.backward(0.5); status("Back");     time.sleep(2)
