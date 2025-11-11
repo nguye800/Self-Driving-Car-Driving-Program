@@ -40,8 +40,8 @@ class Motor():
 
 if __name__ == "__main__":
     ENA = 12   # 
-    IN1 = 23    # 
-    IN2 = 24   # 
+    IN1 = 3    # 
+    IN2 = 4   # 
 
     # motor1 = Motor(ENA, IN1, IN2)
     
@@ -52,28 +52,30 @@ if __name__ == "__main__":
     # motor1.stop()
 
 
-# # Create the motor control pins
-    pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0)
-    in1 = DigitalOutputDevice(IN1)
-    in2 = DigitalOutputDevice(IN2)
-
+# Create the motor control pins
+    pwm = PWMOutputDevice(ENA, frequency=5000, initial_value=0.0) 
+    in1 = DigitalOutputDevice(IN1) # ENABLE
+    in2 = DigitalOutputDevice(IN2) # DISABLE
+    sleep = DigitalOutputDevice(5) # SLEEP
+    
     print("Starting motor test...")
 
-# # Set direction: forward
+# Set direction: forward
+    sleep.on()
+
     in1.on()
     in2.off()
-
-# # Set speed (50% duty cycle)
+# Set speed (50% duty cycle)
     pwm.value = 0.5
     print("Motor should be spinning now!")
-    time.sleep(50)
+    time.sleep(300)
 
-# # Stop the motor
-    # pwm.value = 0.0
-    # in1.off()
-    # in2.off()
+# Stop the motor
+    pwm.value = 0.0
+    in1.off()
+    in2.off()
 
-    # print("Motor stopped.")
+    print("Motor stopped.")
 
     # in1.off()
     # in2.on()
