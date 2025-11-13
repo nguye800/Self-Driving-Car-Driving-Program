@@ -12,6 +12,8 @@ from bless import (
 SERVICE_UUID = 'b07498ca-ad5b-474e-940d-16f1a71141e0'
 PING_CHAR_UUID    = 'c1ff12bb-3ed8-46e5-b4f9-a6ca6092d345'
 PONG_CHAR_UUID    = 'd7add780-b042-4876-aae1-112855353cc1'
+COMMAND_CHAR_UUID = 'e2f3c4d5-6789-4abc-def0-1234567890ab'
+DATA_CHAR_UUID    = 'f1e2d3c4-b5a6-4789-8abc-0def12345678'
 
 server_instance: BlessServer = None
 ping_start: float = 0.0
@@ -53,14 +55,33 @@ def write(characteristic: Any, value: bytearray, **kwargs):
         rtt = (end - ping_start) * 1000
         if ping_start > 0:
             print(f"RTT: {rtt:.2f} ms")
+    elif characteristic.uuid == COMMAND_CHAR_UUID:
+        try:
+            command = value.decode('utf-8')
+            print(f"Received command: {command}")
+        except UnicodeDecodeError:
+            print(f"Received invalid command data: {value}")
+        
+async def send_data():
+    await asyncio.sleep(5.0)
+    if server_instance and await server_instance.is_connected():
+        try:
+            data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+            message = 'Hello from Pi!'
+            data_char.value = message.encode('utf-8')
+            
+            await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+        except Exception as e:
+            print(f"Error sending data: {e}")
 
 async def on_connect():
     global server_instance
     while not await server_instance.is_connected():
         await asyncio.sleep(1.0)
     print("Client connected!")
-    await asyncio.sleep(5.0)
-    await next_ping()
+    await asyncio.sleep(2.0)
+    event_loop.create_task(next_ping())
+    event_loop.create_task(send_data())
 
 async def main(loop):
     global server_instance, event_loop
@@ -93,6 +114,22 @@ async def main(loop):
             GcProps.write,
             None,
             GaPerms.writeable,
+        )
+
+        await server_instance.add_new_characteristic(
+            SERVICE_UUID,
+            COMMAND_CHAR_UUID,
+            GcProps.write,
+            None,
+            GaPerms.writeable,
+        )
+
+        await server_instance.add_new_characteristic(
+            SERVICE_UUID,
+            DATA_CHAR_UUID,
+            GcProps.notify,
+            None,
+            GaPerms.readable,
         )
 
         await server_instance.start()
