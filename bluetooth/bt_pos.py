@@ -6,6 +6,7 @@ from bless import (
     GATTCharacteristicProperties as GcProps,
     GATTAttributePermissions as GaPerms
 )
+import json
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
@@ -17,17 +18,19 @@ DATA_CHAR_UUID    = 'f1e2d3c4-b5a6-4789-8abc-0def12345678'
 
 server_instance: BlessServer = None
 ping_start: float = 0.0
+ping_list = []
 event_loop: asyncio.AbstractEventLoop = None
+distance: float = 0.0
+direction: float = 0.0
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
-KNOWN_DEVICE_ADDR = "XX:XX:XX:XX:XX:XX" # MAC address of the user's computer
 
 async def next_ping():
     global server_instance, ping_start
     
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(0.1)
 
     if server_instance and await server_instance.is_connected():
         try:
@@ -40,14 +43,13 @@ async def next_ping():
         except Exception as e:
             print(f"Error: {e}")
 
-def write(characteristic: Any, value: bytearray, **kwargs):
+def write_recv(characteristic: Any, value: bytearray, **kwargs):
     """
     Called when the client writes to a characteristic.
     This is our "PING" handler.
     """
     global ping_start
     
-    # Check if this write is for the PING characteristic
     if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
         
@@ -55,20 +57,36 @@ def write(characteristic: Any, value: bytearray, **kwargs):
         rtt = (end - ping_start) * 1000
         if ping_start > 0:
             print(f"RTT: {rtt:.2f} ms")
+            ping_list.append(rtt)
     elif characteristic.uuid == COMMAND_CHAR_UUID:
+        # Received a command from the app.
+
         try:
             command = value.decode('utf-8')
+            if command == "START":
+                SELF_DRIVE = True
+            elif command == "MANUAL":
+                SELF_DRIVE = False
+            else:
+                pkt = json.loads(command)
+                      
             print(f"Received command: {command}")
         except UnicodeDecodeError:
             print(f"Received invalid command data: {value}")
         
-async def send_data():
-    await asyncio.sleep(5.0)
+async def send_data(distance, direction):
+    await asyncio.sleep(1.0)
     if server_instance and await server_instance.is_connected():
         try:
-            data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-            message = 'Hello from Pi!'
-            data_char.value = message.encode('utf-8')
+            # Send distance and direction in regualar intervals
+            if distance < 2.0:
+                data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+                message = "MANUAL"
+                data_char.value = message.encode('utf-8')
+            else:
+                data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+                message = "{" + f"\"distance\": {distance}, \"direction\": {direction}" + "}"
+                data_char.value = message.encode('utf-8')
             
             await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
         except Exception as e:
@@ -91,7 +109,7 @@ async def main(loop):
     print("Setting up BLE Peripheral...")
     server_instance = BlessServer(name="PiTest", loop=loop)
 
-    server_instance.write_request_func = write
+    server_instance.write_request_func = write_recv
 
     #advertising
     print("Starting BLE Server... Advertising as 'PiTest'")
