@@ -7,6 +7,7 @@ from bless import (
     GATTAttributePermissions as GaPerms
 )
 import json
+import numpy as np
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
@@ -18,14 +19,49 @@ DATA_CHAR_UUID    = 'f1e2d3c4-b5a6-4789-8abc-0def12345678'
 
 server_instance: BlessServer = None
 ping_start: float = 0.0
-ping_list = []
+calc_list = []
 event_loop: asyncio.AbstractEventLoop = None
-distance: float = 0.0
-direction: float = 0.0
+
+SELF_DRIVE = False
+curr_position = np.array([0.0, 0.0])
+curr_deg = 0.0
+target = np.array([0.0, 0.0])
+target_deg = 0.0
+target_dist = 0.0
 
 # --- Constants for the Car ---
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
-TURN_DURATION = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
+TURN_DURATION_90 = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
+TURN_SPEED = 90 / TURN_DURATION_90
+SOFTWARE_LATENCY_MS = 80.0  
+
+async def get_average_rtt(samples=5):
+    """
+    Measures and averages a number of RTT samples.
+    """
+    global calc_list, event_loop
+    
+    calc_list.clear() # Clear old samples
+    
+    # We are already in a continuous ping loop,
+    # so we just need to wait for the `calc_list` list to fill up.
+    while len(calc_list) < samples:
+        if not (server_instance and server_instance.is_connected):
+            print("Client disconnected during RTT measurement.")
+            return None
+        await asyncio.sleep(0.2) # Wait for pings (ping interval is ~0.1s)
+    
+    # Get a copy of the samples and clear the list for the next run
+    current_samples = calc_list.copy()
+    calc_list.clear()
+    
+    avg_rtt = sum(current_samples) / len(current_samples)
+    print(f"Average RTT: {avg_rtt:.2f} ms")
+    rtt = avg_rtt - SOFTWARE_LATENCY_MS
+    target_dist = rtt / 1_000.0 * 299792458 / 2
+    print(f"Estimated Distance: {target_dist:.2f} m")
+    return target_dist
+
 
 async def next_ping():
     global server_instance, ping_start
@@ -48,16 +84,15 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
     Called when the client writes to a characteristic.
     This is our "PING" handler.
     """
-    global ping_start
+    global ping_start, calc_list, SELF_DRIVE
     
     if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
         
-        end = time.monotonic()
-        rtt = (end - ping_start) * 1000
+        rtt = (time.monotonic() - ping_start) * 1000
         if ping_start > 0:
             print(f"RTT: {rtt:.2f} ms")
-            ping_list.append(rtt)
+            calc_list.append(rtt)
     elif characteristic.uuid == COMMAND_CHAR_UUID:
         # Received a command from the app.
 
@@ -74,18 +109,24 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
         except UnicodeDecodeError:
             print(f"Received invalid command data: {value}")
         
-async def send_data(distance, direction):
+async def send_data():
     await asyncio.sleep(1.0)
+    global server_instance, target_dist, target_deg
+
     if server_instance and await server_instance.is_connected():
         try:
             # Send distance and direction in regualar intervals
-            if distance < 2.0:
+            if target_dist < 2.0:
                 data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
                 message = "MANUAL"
                 data_char.value = message.encode('utf-8')
             else:
                 data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                message = "{" + f"\"distance\": {distance}, \"direction\": {direction}" + "}"
+                message = {
+                    "distance": round(target_dist, 2),
+                    "direction": round(target_deg, 2)
+                }
+                message = json.dumps(message)
                 data_char.value = message.encode('utf-8')
             
             await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
@@ -100,6 +141,7 @@ async def on_connect():
     await asyncio.sleep(2.0)
     event_loop.create_task(next_ping())
     event_loop.create_task(send_data())
+    event_loop.create_task(get_average_rtt())
 
 async def main(loop):
     global server_instance, event_loop
