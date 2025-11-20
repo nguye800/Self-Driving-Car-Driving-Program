@@ -1,5 +1,6 @@
 import time
 import asyncio
+import inspect
 from typing import Any
 from bless import (
     BlessServer,
@@ -35,6 +36,33 @@ TURN_DURATION_90 = 1.2 # Time needed to complete a 90-degree turn, must be calib
 TURN_SPEED = 90 / TURN_DURATION_90
 SOFTWARE_LATENCY_MS = 80.0  
 
+def is_client_connected() -> bool:
+    """
+    Bless exposes `is_connected` differently across versions (property vs method).
+    Normalize the result so the rest of the code can treat it as a bool.
+    """
+    global server_instance
+    if not server_instance:
+        return False
+    status = getattr(server_instance, "is_connected", False)
+    try:
+        return bool(status())
+    except TypeError:
+        return bool(status)
+
+
+async def update_characteristic(service_uuid: str, char_uuid: str):
+    """
+    Bless versions before 0.2 returned a bool from update_value while newer
+    releases return an awaitable. Support both so we never `await` a bool.
+    """
+    if not server_instance:
+        return
+    result = server_instance.update_value(service_uuid, char_uuid)
+    if inspect.isawaitable(result):
+        await result
+
+
 async def get_average_rtt(samples=5):
     """
     Measures and averages a number of RTT samples.
@@ -46,7 +74,7 @@ async def get_average_rtt(samples=5):
         
         # Wait for enough RTT samples while connected
         while len(calc_list) < samples:
-            if not (server_instance and server_instance.is_connected()):
+            if not is_client_connected():
                 await asyncio.sleep(1.0)
                 break
             await asyncio.sleep(0.2) # Wait for pings (ping interval is ~0.1s)
@@ -68,14 +96,14 @@ async def next_ping():
     global server_instance, ping_start
     
     while True:
-        if server_instance and server_instance.is_connected():
+        if is_client_connected():
             try:
                 ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
                 ping_char.value = b'\x01'
 
                 ping_start = time.monotonic()
 
-                await server_instance.update_value(SERVICE_UUID, PING_CHAR_UUID)
+                await update_characteristic(SERVICE_UUID, PING_CHAR_UUID)
             except Exception as e:
                 print(f"Error: {e}")
             await asyncio.sleep(0.1)
@@ -116,7 +144,7 @@ async def send_data():
     global server_instance, target_dist, target_deg
 
     while True:
-        if server_instance and server_instance.is_connected():
+        if is_client_connected():
             try:
                 # Send distance and direction in regualar intervals
                 if target_dist < 2.0:
@@ -132,14 +160,14 @@ async def send_data():
                     message = json.dumps(message)
                     data_char.value = message.encode('utf-8')
                 
-                await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+                await update_characteristic(SERVICE_UUID, DATA_CHAR_UUID)
             except Exception as e:
                 print(f"Error sending data: {e}")
         await asyncio.sleep(1.0)
 
 async def on_connect():
     global server_instance
-    while not (server_instance and server_instance.is_connected()):
+    while not is_client_connected():
         await asyncio.sleep(1.0)
     print("Client connected!")
     await asyncio.sleep(2.0)
