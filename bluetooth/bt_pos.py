@@ -46,7 +46,7 @@ async def get_average_rtt(samples=5):
         
         # Wait for enough RTT samples while connected
         while len(calc_list) < samples:
-            if not (server_instance and server_instance.is_connected):
+            if not (server_instance and server_instance.is_connected()):
                 await asyncio.sleep(1.0)
                 break
             await asyncio.sleep(0.2) # Wait for pings (ping interval is ~0.1s)
@@ -68,7 +68,7 @@ async def next_ping():
     global server_instance, ping_start
     
     while True:
-        if server_instance and server_instance.is_connected:
+        if server_instance and server_instance.is_connected():
             try:
                 ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
                 ping_char.value = b'\x01'
@@ -116,7 +116,7 @@ async def send_data():
     global server_instance, target_dist, target_deg
 
     while True:
-        if server_instance and server_instance.is_connected:
+        if server_instance and server_instance.is_connected():
             try:
                 # Send distance and direction in regualar intervals
                 if target_dist < 2.0:
@@ -139,7 +139,7 @@ async def send_data():
 
 async def on_connect():
     global server_instance
-    while not (server_instance and server_instance.is_connected):
+    while not (server_instance and server_instance.is_connected()):
         await asyncio.sleep(1.0)
     print("Client connected!")
     await asyncio.sleep(2.0)
