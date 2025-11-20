@@ -39,45 +39,48 @@ async def get_average_rtt(samples=5):
     """
     Measures and averages a number of RTT samples.
     """
-    global calc_list, event_loop
+    global calc_list, event_loop, target_dist
     
-    calc_list.clear() # Clear old samples
-    
-    # We are already in a continuous ping loop,
-    # so we just need to wait for the `calc_list` list to fill up.
-    while len(calc_list) < samples:
-        if not (server_instance and server_instance.is_connected):
-            print("Client disconnected during RTT measurement.")
-            return None
-        await asyncio.sleep(0.2) # Wait for pings (ping interval is ~0.1s)
-    
-    # Get a copy of the samples and clear the list for the next run
-    current_samples = calc_list.copy()
-    calc_list.clear()
-    
-    avg_rtt = sum(current_samples) / len(current_samples)
-    print(f"Average RTT: {avg_rtt:.2f} ms")
-    rtt = avg_rtt - SOFTWARE_LATENCY_MS
-    target_dist = rtt / 1_000.0 * 299792458 / 2
-    print(f"Estimated Distance: {target_dist:.2f} m")
-    return target_dist
+    while True:
+        calc_list.clear() # Clear old samples
+        
+        # Wait for enough RTT samples while connected
+        while len(calc_list) < samples:
+            if not (server_instance and server_instance.is_connected):
+                await asyncio.sleep(1.0)
+                break
+            await asyncio.sleep(0.2) # Wait for pings (ping interval is ~0.1s)
+        else:
+            # Get a copy of the samples and clear the list for the next run
+            current_samples = calc_list.copy()
+            calc_list.clear()
+            
+            avg_rtt = sum(current_samples) / len(current_samples)
+            print(f"Average RTT: {avg_rtt:.2f} ms")
+            rtt = avg_rtt - SOFTWARE_LATENCY_MS
+            target_dist = rtt / 1_000.0 * 299792458 / 2
+            print(f"Estimated Distance: {target_dist:.2f} m")
+        
+        await asyncio.sleep(0.5)
 
 
 async def next_ping():
     global server_instance, ping_start
     
-    await asyncio.sleep(0.1)
+    while True:
+        if server_instance and server_instance.is_connected:
+            try:
+                ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
+                ping_char.value = b'\x01'
 
-    if server_instance and server_instance.is_connected:
-        try:
-            ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
-            ping_char.value = b'\x01'
+                ping_start = time.monotonic()
 
-            ping_start = time.monotonic()
-
-            await server_instance.update_value(SERVICE_UUID, PING_CHAR_UUID)
-        except Exception as e:
-            print(f"Error: {e}")
+                await server_instance.update_value(SERVICE_UUID, PING_CHAR_UUID)
+            except Exception as e:
+                print(f"Error: {e}")
+            await asyncio.sleep(0.1)
+        else:
+            await asyncio.sleep(1.0)
 
 def write_recv(characteristic: Any, value: bytearray, **kwargs):
     """
@@ -110,28 +113,29 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
             print(f"Received invalid command data: {value}")
         
 async def send_data():
-    await asyncio.sleep(1.0)
     global server_instance, target_dist, target_deg
 
-    if server_instance and server_instance.is_connected:
-        try:
-            # Send distance and direction in regualar intervals
-            if target_dist < 2.0:
-                data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                message = "MANUAL"
-                data_char.value = message.encode('utf-8')
-            else:
-                data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                message = {
-                    "distance": round(target_dist, 2),
-                    "direction": round(target_deg, 2)
-                }
-                message = json.dumps(message)
-                data_char.value = message.encode('utf-8')
-            
-            await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
-        except Exception as e:
-            print(f"Error sending data: {e}")
+    while True:
+        if server_instance and server_instance.is_connected:
+            try:
+                # Send distance and direction in regualar intervals
+                if target_dist < 2.0:
+                    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+                    message = "MANUAL"
+                    data_char.value = message.encode('utf-8')
+                else:
+                    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+                    message = {
+                        "distance": round(target_dist, 2),
+                        "direction": round(target_deg, 2)
+                    }
+                    message = json.dumps(message)
+                    data_char.value = message.encode('utf-8')
+                
+                await server_instance.update_value(SERVICE_UUID, DATA_CHAR_UUID)
+            except Exception as e:
+                print(f"Error sending data: {e}")
+        await asyncio.sleep(1.0)
 
 async def on_connect():
     global server_instance
