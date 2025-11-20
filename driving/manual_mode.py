@@ -29,9 +29,12 @@ class Manual():
         r_dir = "fwd" if r >= 0 else "rev"
         self.drive.set_speeds(abs(l), abs(r), (l_dir, r_dir))
 
-    def joystick(self):
+    def joystick(self, pkt):
         try:
+            x = float(pkt["x"])
+            y = float(pkt["y"])
             # Apply deadzone & clamp
+            print(x, y)
             x = self.clamp(self.deadzone(x))
             y = self.clamp(self.deadzone(y))
 
@@ -40,10 +43,22 @@ class Manual():
 
             # Drive motors
             self.apply_signed(l, r)
-            time.sleep(0.02)
+            time.sleep(0.2)
         except KeyboardInterrupt:
             pass
         finally:
             self.drive.stop(brake=False)
             self.drive.disable()
 
+if __name__ == "__main__":
+    #init motor pins
+    left = Motor(en_pwm=12, in_a=3, in_b=4, sleep_pin=5, fault_pin=2, enc_a=17, enc_b=18)
+    right = Motor(en_pwm=13, in_a=7, in_b=8, sleep_pin=9, fault_pin=6, enc_a=19, enc_b=20)
+
+    #define drive base
+    drive = DriveBase(left, right)
+    manual_mode = Manual(drive)
+    pkt = {"x": "0.5", "y": "0.5"}
+
+    for i in range(10):
+        manual_mode.joystick(pkt)

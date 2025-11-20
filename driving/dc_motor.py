@@ -16,17 +16,17 @@ class Motor:
     """
     def __init__(
         self,
-        enable_pwm: int,
+        en_pwm: int,
         in_a: int,
         in_b: int,
         sleep_pin: int | None = None,
         fault_pin: int | None = None,
         enc_a: int | None = None,
         enc_b: int | None = None,
-        pwm_freq: int = 20000  # keep above audible range
+        pwm_freq: int = 5000
     ):
         # EN/IN1: PWM speed control
-        self.pwm = PWMOutputDevice(enable_pwm, frequency=pwm_freq, initial_value=0.0)
+        self.pwm = PWMOutputDevice(en_pwm, frequency=pwm_freq, initial_value=0.0)
 
         # PH/IN2: direction
         self.dir = DigitalOutputDevice(in_a, initial_value=False)
@@ -158,10 +158,10 @@ class DriveBase:
 # M2: EN/IN1(PWM)=13, PH/IN2=7, DISABLE=8, nSLEEP=9, nFAULT=6, ENC A/B = 19/20
 def build_drivebase() -> DriveBase:
     m1 = Motor(
-        enable_pwm=12, in_a=3, in_b=4, sleep_pin=5, fault_pin=2, enc_a=17, enc_b=18
+        en_pwm=12, in_a=3, in_b=4, sleep_pin=5, fault_pin=2, enc_a=17, enc_b=18
     )
     m2 = Motor(
-        enable_pwm=13, in_a=7, in_b=8, sleep_pin=9, fault_pin=6, enc_a=19, enc_b=20
+        en_pwm=13, in_a=7, in_b=8, sleep_pin=9, fault_pin=6, enc_a=19, enc_b=20
     )
     return DriveBase(m1, m2)
 
