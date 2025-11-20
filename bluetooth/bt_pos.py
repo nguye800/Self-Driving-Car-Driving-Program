@@ -68,7 +68,7 @@ async def next_ping():
     
     await asyncio.sleep(0.1)
 
-    if server_instance and await server_instance.is_connected():
+    if server_instance and server_instance.is_connected:
         try:
             ping_char = server_instance.get_characteristic(PING_CHAR_UUID)
             ping_char.value = b'\x01'
@@ -113,7 +113,7 @@ async def send_data():
     await asyncio.sleep(1.0)
     global server_instance, target_dist, target_deg
 
-    if server_instance and await server_instance.is_connected():
+    if server_instance and server_instance.is_connected:
         try:
             # Send distance and direction in regualar intervals
             if target_dist < 2.0:
@@ -135,7 +135,7 @@ async def send_data():
 
 async def on_connect():
     global server_instance
-    while not await server_instance.is_connected():
+    while not (server_instance and server_instance.is_connected):
         await asyncio.sleep(1.0)
     print("Client connected!")
     await asyncio.sleep(2.0)
@@ -143,13 +143,13 @@ async def on_connect():
     event_loop.create_task(send_data())
     event_loop.create_task(get_average_rtt())
 
-async def main(loop):
+async def main():
     global server_instance, event_loop
 
-    event_loop = loop
+    event_loop = asyncio.get_running_loop()
 
     print("Setting up BLE Peripheral...")
-    server_instance = BlessServer(name="PiTest", loop=loop)
+    server_instance = BlessServer(name="PiTest", loop=event_loop)
 
     server_instance.write_request_func = write_recv
 
@@ -206,8 +206,7 @@ async def main(loop):
 
 if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(loop))
+    asyncio.run(main())
 
 # class BluetoothPos:
 #     def __init__(self, device_address=KNOWN_DEVICE_ADDR, service_uuid=SERVICE_UUID):
