@@ -171,8 +171,11 @@ async def on_connect():
         await asyncio.sleep(1.0)
     print("Client connected!")
     await asyncio.sleep(2.0)
+    print("next ping")
     event_loop.create_task(next_ping())
+    print("send data")
     event_loop.create_task(send_data())
+    print("avg rtt")
     event_loop.create_task(get_average_rtt())
 
 async def main():
