@@ -4,7 +4,7 @@
 import numpy as np
 import cv2
 import os
-import config
+from automatic_drive import config
 from picamera2 import Picamera2
 
 def rpi_camera(camera):
