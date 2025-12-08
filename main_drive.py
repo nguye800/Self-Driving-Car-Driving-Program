@@ -1,5 +1,5 @@
-from driving.manual_mode import Manual
-from driving.dc_motor import Motor, DriveBase
+from manual_drive.manual_mode import Manual
+from manual_drive.dc_motor import Motor, DriveBase
 from car_bluetooth.bt_pos import bt_main
 
 SELF_DRIVE = False
