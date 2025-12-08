@@ -1,7 +1,37 @@
 from manual_drive.dc_motor import Motor
+import time
+
+import board
+import busio
+from gpiozero import DigitalOutputDevice
+import adafruit_vl53l0x
 
 SONAR_COLLISION_THRESHOLD = 0.25
-        
+
+# globals for sensors
+sonar_left = None
+sonar_right = None
+
+class SonarWrapper:
+    """
+    Simple wrapper so check_collision() can use getValue() and getName()
+    """
+    def __init__(self, name, sensor):
+        self._name = name
+        self._sensor = sensor
+
+    def getName(self):
+        return self._name
+
+    def getValue(self):
+        """
+        Return distance in meters.
+        adafruit_vl53l0x.VL53L0X.range is in millimeters.
+        """
+        dist_mm = self._sensor.range
+        # Sensor returns 0 or very large on error sometimes;
+        return dist_mm / 1000.0
+
 # ----------------------------
 # Motor + Sonar setup
 # ----------------------------
@@ -22,6 +52,38 @@ def check_collision(sensors, threshold=SONAR_COLLISION_THRESHOLD):
     return False
 
 def get_distance_sensors(): # fix
+    global sonar_left, sonar_right
+
+    # If already initialized, just return them
+    if sonar_left is not None and sonar_right is not None:
+        return sonar_left, sonar_right
+
+    # I2C bus
+    i2c = busio.I2C(board.SCL, board.SDA)
+
+    # XSHUT pins (BCM numbering)
+    xshut_left = DigitalOutputDevice(22)   # wire to left VL53 XSHUT
+    xshut_right = DigitalOutputDevice(27)  # wire to right VL53 XSHUT
+
+    # Reset both sensors
+    xshut_left.off()
+    xshut_right.off()
+    time.sleep(0.01)
+
+    # Bring up LEFT sensor first and give it a new I2C address
+    xshut_left.on()
+    time.sleep(0.05)
+    vl_left = adafruit_vl53l0x.VL53L0X(i2c)
+    vl_left.set_address(0x30)   # any free address ≠ 0x29
+
+    # Then bring up RIGHT sensor and assign a different address
+    xshut_right.on()
+    time.sleep(0.05)
+    vl_right = adafruit_vl53l0x.VL53L0X(i2c)
+    vl_right.set_address(0x31)
+
+    sonar_left = SonarWrapper("left_tof", vl_left)
+    sonar_right = SonarWrapper("right_tof", vl_right)
 
     return sonar_left, sonar_right
 
