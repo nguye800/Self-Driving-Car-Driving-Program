@@ -62,7 +62,7 @@ def get_distance_sensors():
 
     # I2C bus (SCL: GPIO 11, SDA: GPIO 10)
     print("[DEBUG] Initializing I2C bus, GPIO 10 (SDA) & GPIO11 (SCL)")
-    i2c = busio.I2C(scl=board.D11, sda=board.D10)
+    i2c = busio.I2C(scl=board.SCL, sda=board.SDA)
 
     # XSHUT pins (BCM numbering)
     xshut_left = DigitalOutputDevice(22)   # wire to left VL53 XSHUT
@@ -76,9 +76,9 @@ def get_distance_sensors():
     # Bring up LEFT sensor first and give it a new I2C address
     print("[DEBUG] Enabling LEFT sensor...")
     xshut_left.on()
-    time.sleep(0.05)
+    time.sleep(0.1)
     vl_left = adafruit_vl53l0x.VL53L0X(i2c)
-    vl_left.set_address(0x30)   # any free address ≠ 0x29
+    vl_left.set_address(0x29)   # any free address ≠ 0x29
     print("[DEBUG] Left sensor set to address 0x30")
 
     # Then bring up RIGHT sensor and assign a different address

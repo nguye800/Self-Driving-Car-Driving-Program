@@ -104,7 +104,7 @@ def summarize_region_depth(region_depth, min_depth=0.1, max_depth=5.0,
 
 
 def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2571, visualize=False, save_disp=False):
-    imgL = camL.getImage(); imgR = camR.getImage()
+    imgL = camL.capture_array(); imgR = camR.capture_array()
     if imgL is None or imgR is None:
         return config._last_readings
 
@@ -157,3 +157,20 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
     config._last_readings = (center, left, right)
 
     return center, left, right
+
+if __name__ == "__main__":
+    camR = rpi_camera(0)
+    camL = rpi_camera(1)
+
+    while True:
+        frameL = camL.capture_array()
+        frameR = camR.capture_array()
+        grayL = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
+        grayR = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
+
+        dispmap = compute_dispmap_sgbm(grayL, grayR)
+        disp_norm = cv2.normalize(dispmap, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+        disp_color = cv2.applyColorMap(disp_norm, cv2.COLORMAP_JET)
+        cv2.imshow("test", disp_color)
+        cv2.waitKey(1)
+
