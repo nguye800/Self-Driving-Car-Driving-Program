@@ -9,6 +9,7 @@ from bless import (
 )
 import json
 import numpy as np
+import math
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
@@ -23,8 +24,11 @@ ping_start: float = 0.0
 calc_list = []
 event_loop: asyncio.AbstractEventLoop = None
 
+JOYSTICK = None
 SELF_DRIVE = False
+move_history = [] #from car navigation: [Movement, time]
 curr_position = np.array([0.0, 0.0])
+positions = [[0.0,0.0]]
 curr_deg = 0.0
 target = np.array([0.0, 0.0])
 target_deg = 0.0
@@ -34,7 +38,7 @@ target_dist = 0.0
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION_90 = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
 TURN_SPEED = 90 / TURN_DURATION_90
-SOFTWARE_LATENCY_MS = 80.0  
+SOFTWARE_LATENCY_MS = 50.0  
 
 def is_client_connected() -> bool:
     """
@@ -69,9 +73,7 @@ async def get_average_rtt(samples=5):
     """
     global calc_list, event_loop, target_dist
     
-    while True:
-        calc_list.clear() # Clear old samples
-        
+    while True:        
         # Wait for enough RTT samples while connected
         while len(calc_list) < samples:
             if not is_client_connected():
@@ -91,6 +93,97 @@ async def get_average_rtt(samples=5):
         
         await asyncio.sleep(0.5)
 
+async def update_position():
+    global curr_position, curr_deg, positions, SELF_DRIVE
+    
+    while True:
+        await asyncio.sleep(2)
+        move_history.clear()
+        for i in move_history:
+            movement, duration = i
+            if movement == "FORWARD":
+                rad = np.deg2rad(curr_deg)
+                direction_vector = np.array([np.cos(rad), np.sin(rad)])
+                distance = CAR_SPEED_MPS * duration
+                curr_position += direction_vector * distance
+                positions.append(curr_position.tolist())
+            elif movement == "BACKWARD":
+                rad = np.deg2rad(curr_deg)
+                direction_vector = np.array([np.cos(rad), np.sin(rad)])
+                distance = CAR_SPEED_MPS * duration
+                curr_position -= direction_vector * distance
+                positions.append(curr_position.tolist())
+            elif movement == "LEFT":
+                angle_change = TURN_SPEED * duration
+                curr_deg = (curr_deg - angle_change) % 360
+            elif movement == "RIGHT":
+                angle_change = TURN_SPEED * duration
+                curr_deg = (curr_deg + angle_change) % 360
+
+async def calculate_target():
+    global curr_position, positions, curr_deg, target, target_deg, target_dist
+
+    while True:
+        await asyncio.sleep(2)
+        if len(positions) >= 3:
+            p1 = positions[-1] 
+            p2 = positions[-3] # Use -3 to get some physical separation
+            
+            x1, y1, r1 = p1
+            x2, y2, r2 = p2
+            
+            # Distance between the two car positions
+            d = math.sqrt((x1-x2)**2 + (y1-y2)**2)
+            
+            # Trilateration logic:
+            # If d > r1 + r2: Circles don't touch (too far)
+            # If d < |r1 - r2|: One circle inside other (error)
+            # If d == 0: Car hasn't moved
+            
+            if d > 0.1 and d <= (r1 + r2) and d >= abs(r1 - r2):
+                # Calculate intersection points
+                a = (r1**2 - r2**2 + d**2) / (2*d)
+                h = math.sqrt(max(0, r1**2 - a**2))
+                
+                x2_rel = x2 - x1
+                y2_rel = y2 - y1
+                
+                # Point 2 coordinates relative to Point 1
+                x3 = x1 + a * (x2_rel / d)
+                y3 = y1 + a * (y2_rel / d)
+                
+                # Two possible intersection points
+                target_x_1 = x3 + h * (y2_rel / d)
+                target_y_1 = y3 - h * (x2_rel / d)
+                
+                target_x_2 = x3 - h * (y2_rel / d)
+                target_y_2 = y3 + h * (x2_rel / d)
+                
+                # Disambiguation:
+                # We assume the target is roughly in front of us or use a 3rd point.
+                # For simplicity: Use the point closer to our current heading.
+                
+                # Let's just pick one for now (or average them if they are close)
+                target_coords = np.array([target_x_1, target_y_1])
+                
+                # Calculate Angle to Target relative to Car's Heading
+                # Absolute angle to target
+                abs_angle = math.atan2(target_coords[1] - curr_position[1], 
+                                       target_coords[0] - curr_position[0])
+                abs_deg = np.degrees(abs_angle)
+                
+                # Relative angle (Steering Error)
+                # If Car is 90 deg, Target is 100 deg -> Rel is +10 (Right)
+                rel_deg = abs_deg - curr_deg
+                
+                # Normalize to -180 to 180
+                target_deg = (rel_deg + 180) % 360 - 180
+                
+                print(f"TRIANGULATED: RelAngle: {target_deg:.2f}, Coords: {target_coords}")
+
+        await asyncio.sleep(1)
+
+        
 
 async def next_ping():
     global server_instance, ping_start
@@ -131,10 +224,16 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
             command = value.decode('utf-8')
             if command == "START":
                 SELF_DRIVE = True
+                JOYSTICK = None
+                print("\nSelf-driving mode activated.\n")
             elif command == "MANUAL":
                 SELF_DRIVE = False
+                JOYSTICK = None
+                print("\nManual mode activated.\n")
             else:
-                pkt = json.loads(command)
+                if SELF_DRIVE == False:
+                    JOYSTICK = json.loads(command)
+                print(f"\njoystick: {JOYSTICK}\n")
                       
             print(f"Received command: {command}")
         except UnicodeDecodeError:
@@ -148,17 +247,20 @@ async def send_data():
             try:
                 # Send distance and direction in regualar intervals
                 if target_dist < 2.0:
-                    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                    message = "MANUAL"
-                    data_char.value = message.encode('utf-8')
+                    SELF_DRIVE = False
+                
+                data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
+                if SELF_DRIVE:
+                    mode = "AUTO"
                 else:
-                    data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                    message = {
-                        "distance": round(target_dist, 2),
-                        "direction": round(target_deg, 2)
-                    }
-                    message = json.dumps(message)
-                    data_char.value = message.encode('utf-8')
+                    mode = "MANUAL"
+                message = {
+                    "mode": mode,
+                    "distance": round(target_dist, 2),
+                    "direction": round(target_deg, 2)
+                }
+                message = json.dumps(message)
+                data_char.value = message.encode('utf-8')
                 
                 await update_characteristic(SERVICE_UUID, DATA_CHAR_UUID)
             except Exception as e:
@@ -243,114 +345,4 @@ if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
     asyncio.run(main())
 
-# class BluetoothPos:
-#     def __init__(self, device_address=KNOWN_DEVICE_ADDR, service_uuid=SERVICE_UUID):
-#         self.server_sock = None
-#         self.client_sock = None
-#         self.client_info = None
-#         self.service_uuid = service_uuid
-#         # self.motors = Motors(forward=(17, 18), backward=(22, 23)) # Example GPIO pins
 
-
-
-#     def measure_distance(bt_connection):
-#         """
-#         Performs a single "ping-pong" distance measurement over Bluetooth.
-#         This assumes the connected device is running a responder script.
-#         """
-#         try:
-#             start_time = time.monotonic_ns()
-#             bt_connection.send(b'PING')
-#             response = bt_connection.recv(1024) # With a timeout
-#             end_time = time.monotonic_ns()
-
-#             if response == b'PONG':
-#                 round_trip_ns = end_time - start_time
-#                 # This calculation is theoretical and highly prone to latency error
-#                 # A calibration step to find and subtract system latency is required.
-#                 round_trip_s = round_trip_ns / 1_000_000_000
-#                 distance = (299792458 * round_trip_s) / 2
-#                 return distance
-#             return None
-#         except IOError:
-#             print("Error during distance measurement.")
-#             return None
-
-
-#     def solve_triangulation(p0, p1, p2, d0, d1, d2):
-#         """
-#         Calculates the location of a target using three distance measurements
-#         from three non-collinear points. (Adapted from your code).
-#         """
-#         dist_p0_p1 = np.linalg.norm(p1 - p0)
-
-#         if dist_p0_p1 > d0 + d1 or dist_p0_p1 < abs(d0 - d1):
-#             print("Error: Circles do not intersect. Cannot solve.")
-#             return None, None
-
-#         a = (d0**2 - d1**2 + dist_p0_p1**2) / (2 * dist_p0_p1)
-#         h_sq = d0**2 - a**2
-#         h = 0 if h_sq < 0 else np.sqrt(h_sq)
-
-#         p_intersect = p0 + a * (p1 - p0) / dist_p0_p1
-#         perp_vector = np.array([-(p1[1] - p0[1]), (p1[0] - p0[0])]) / dist_p0_p1
-
-#         possible_point1 = p_intersect + h * perp_vector
-#         possible_point2 = p_intersect - h * perp_vector
-
-#         dist_to_point1 = np.linalg.norm(possible_point1 - p2)
-#         dist_to_point2 = np.linalg.norm(possible_point2 - p2)
-
-#         calculated_location = possible_point1 if abs(dist_to_point1 - d2) < abs(dist_to_point2 - d2) else possible_point2
-
-#         direction_vector = calculated_location - p2
-#         world_angle_rad = np.arctan2(direction_vector[1], direction_vector[0])
-#         world_angle_deg = np.degrees(world_angle_rad)
-
-#         car_final_heading_deg = -90.0 # Assumes final move was along negative Y-axis
-#         required_turn_deg = world_angle_deg - car_final_heading_deg
-#         required_turn_deg = (required_turn_deg + 180) % 360 - 180
-
-#         return calculated_location, required_turn_deg
-
-#     # def run_initial_calibration(bt_connection):
-#     #     """
-#     #     Executes the L-shaped movement pattern to get the first triangulation.
-#     #     """
-#     #     print("--- Starting Initial Calibration ---")
-        
-#     #     # Define the car's path based on its actions
-#     #     p0 = np.array([0.0, 0.0])
-        
-#     #     # 1. First measurement at the starting point
-#     #     d0 = measure_distance(bt_connection)
-#     #     if d0 is None: return None, None
-#     #     print(f"Measurement at P0: {d0:.2f} m")
-
-#     #     # 2. Drive forward
-#     #     control_motors("forward", 2.0)
-#     #     p1 = p0 + np.array([CAR_SPEED_MPS * 2, 0.0])
-#     #     d1 = measure_distance(bt_connection)
-#     #     if d1 is None: return None, None
-#     #     print(f"Measurement at P1: {d1:.2f} m")
-        
-#     #     # 3. Turn right and drive forward again
-#     #     control_motors("right", TURN_DURATION_S)
-#     #     control_motors("forward", 2.0)
-#     #     p2 = p1 + np.array([0.0, -CAR_SPEED_MPS * 2])
-#     #     d2 = measure_distance(bt_connection)
-#     #     if d2 is None: return None, None
-#     #     print(f"Measurement at P2: {d2:.2f} m")
-
-#     #     # 4. Solve for the initial location and required turn
-#     #     target_loc, initial_turn = solve_triangulation(p0, p1, p2, d0, d1, d2)
-        
-#     #     if target_loc is not None:
-#     #         print(f"Calibration complete. Target estimated at {target_loc}.")
-#     #         print(f"Initial turn required: {initial_turn:.1f} degrees.")
-#     #         # Execute the initial turn to face the target
-#     #         # turn_duration = abs(initial_turn / 90.0) * TURN_DURATION_S
-#     #         # turn_direction = "left" if initial_turn > 0 else "right"
-#     #         # control_motors(turn_direction, turn_duration)
-        
-#     #     return target_loc, p2 # Return target location and car's final position
