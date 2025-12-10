@@ -13,7 +13,10 @@ async def main_loop():
     manual_mode = Manual(drive)
 
     # Start BLE server
+    # asyncio.create_task(bt_pos.bt_main())
     asyncio.create_task(bt_pos.bt_main())
+    await bt_pos.wait_for_connection()
+    print("BLE connected; starting drive loop.")
 
     while True:
         print("mode:", bt_pos.SELF_DRIVE)

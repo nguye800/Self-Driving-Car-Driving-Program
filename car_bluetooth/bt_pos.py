@@ -1,7 +1,7 @@
 import time
 import asyncio
 import inspect
-from typing import Any
+from typing import Any, Optional
 from bless import (
     BlessServer,
     GATTCharacteristicProperties as GcProps,
@@ -23,6 +23,7 @@ server_instance: BlessServer = None
 ping_start: float = 0.0
 calc_list = []
 event_loop: asyncio.AbstractEventLoop = None
+connection_ready_event: Optional[asyncio.Event] = None
 
 JOYSTICK = None
 SELF_DRIVE = False
@@ -53,6 +54,19 @@ def is_client_connected() -> bool:
         return bool(status())
     except TypeError:
         return bool(status)
+
+
+async def wait_for_connection(poll_interval: float = 0.1) -> None:
+    """
+    Await until the BLE client has connected so callers can safely proceed.
+    """
+    global connection_ready_event
+    while connection_ready_event is None:
+        # bt_main hasn't initialized yet; yield so it can start up.
+        await asyncio.sleep(poll_interval)
+    if is_client_connected():
+        connection_ready_event.set()
+    await connection_ready_event.wait()
 
 
 async def update_characteristic(service_uuid: str, char_uuid: str):
@@ -268,10 +282,12 @@ async def send_data():
         await asyncio.sleep(1.0)
 
 async def on_connect():
-    global server_instance
+    global server_instance, connection_ready_event
     while not is_client_connected():
         await asyncio.sleep(1.0)
     print("Client connected!")
+    if connection_ready_event and not connection_ready_event.is_set():
+        connection_ready_event.set()
     await asyncio.sleep(2.0)
     event_loop.create_task(next_ping())
     event_loop.create_task(send_data())
@@ -280,9 +296,10 @@ async def on_connect():
     event_loop.create_task(calculate_target())
 
 async def bt_main():
-    global server_instance, event_loop
+    global server_instance, event_loop, connection_ready_event
 
     event_loop = asyncio.get_running_loop()
+    connection_ready_event = asyncio.Event()
 
     print("Setting up BLE Peripheral...")
     server_instance = BlessServer(name="PiTest", loop=event_loop)
@@ -343,5 +360,4 @@ async def bt_main():
 if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
     asyncio.run(bt_main())
-
 
