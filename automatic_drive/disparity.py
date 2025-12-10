@@ -9,12 +9,12 @@ from picamera2 import Picamera2
 
 def rpi_camera(camera):
     picam2 = Picamera2(camera)
-    picam2.configure(picam2.create_preview_configuration(raw={"size":(4608,2592)},main={"format":'RGB888',"size": (1280,720)}))
+    picam2.configure(picam2.create_preview_configuration(raw={"size":(4608,2592)},main={"format":'RGB888',"size": (1920,1080)}))
     picam2.start()
 
     return picam2
     
-def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=64, blocksize=5):
+def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):
     """Compute disparity map using Semi-Global Block Matching"""
     blocksize = max(3, blocksize | 1)
     P1 = 8 * blocksize * blocksize
@@ -78,7 +78,7 @@ def save_debug_depth_map(depth, w, h, step_idx, folder="depth_debug"):
 STEREO_DECIMATE = 1
 
 def summarize_region_depth(region_depth, min_depth=0.1, max_depth=5.0,
-    default_val=5.0, low_quantile=0.2, near_threshold=1.0, min_near_fraction=0.01):
+    default_val=5.0, low_quantile=0.2, near_threshold=2.0, min_near_fraction=0.01):
     """
     Summarize a region's depth with a value that:
     - is sensitive to thin, near obstacles (low percentile)
@@ -120,7 +120,7 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
         w, h = gL.shape[1], gL.shape[0]
 
     # lighter SGBM
-    disp = compute_dispmap_sgbm(gL, gR, minDisp=0, numDisp=320, blocksize=5)
+    disp = compute_dispmap_sgbm(gL, gR, minDisp=0, numDisp=256, blocksize=5)
         
     if focal_length is None:
         focal_length = w * 0.8
@@ -137,17 +137,17 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
     h_end   = int(0.65 * h)
     h_band  = slice(h_start, h_end)
     
-    left_start = int(0.1 * w)
-    left_end = int(0.3 * w)
-    center_start = int(0.25 * w)
-    center_end = int(0.75 * w)
-    right_start = int(0.7 * w)
-    right_end = int(0.9 * w)
+    left_start = int(0.15 * w)
+    left_end = int(0.35 * w)
+    center_start = int(0.3 * w)
+    center_end = int(0.70 * w)
+    right_start = int(0.65 * w)
+    right_end = int(0.85 * w)
     
     # region slices (arrays)
-    l_region = depth[h_band, left_start:left_end] # 10–30%
-    c_region = depth[h_band, center_start:center_end] # 25–75%
-    r_region = depth[h_band, right_start:right_end] # 70–90%
+    l_region = depth[h_band, left_start:left_end] # 15–35%
+    c_region = depth[h_band, center_start:center_end] # 30–70%
+    r_region = depth[h_band, right_start:right_end] # 65–85%
     
     # scalar medians
     left   = summarize_region_depth(l_region)
@@ -165,12 +165,27 @@ if __name__ == "__main__":
     while True:
         frameL = camL.capture_array()
         frameR = camR.capture_array()
-        grayL = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
-        grayR = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
+        grayL = cv2.cvtColor(frameL, cv2.COLOR_BGRA2GRAY)
+        grayR = cv2.cvtColor(frameR, cv2.COLOR_BGRA2GRAY)
 
-        dispmap = compute_dispmap_sgbm(grayL, grayR)
-        disp_norm = cv2.normalize(dispmap, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
-        disp_color = cv2.applyColorMap(disp_norm, cv2.COLORMAP_JET)
-        cv2.imshow("test", disp_color)
+        # # ---------- SIDE-BY-SIDE DISPLAY ----------
+        # # resize for easier viewing (optional)
+        # scale = 0.4
+        # gL_small = cv2.resize(grayL, None, fx=scale, fy=scale)
+        # gR_small = cv2.resize(grayR, None, fx=scale, fy=scale)
+
+        # # concatenate horizontally
+        # side_by_side = np.hstack((gL_small, gR_small))
+
+        # cv2.imshow("Left | Right", side_by_side)
+        # cv2.waitKey(1)
+        # continue
+        # # ------------------------------------------
+
+        disp = compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=256, blocksize=5)
+        disp_vis = cv2.normalize(disp, None, 0, 255, cv2.NORM_MINMAX)
+        disp_vis = disp_vis.astype(np.uint8)
+        depth_color = cv2.applyColorMap(255 - disp_vis, cv2.COLORMAP_JET)
+        cv2.imshow("disp", depth_color)
         cv2.waitKey(1)
 

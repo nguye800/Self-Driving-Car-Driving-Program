@@ -208,7 +208,7 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
     Called when the client writes to a characteristic.
     This is our "PING" handler.
     """
-    global ping_start, calc_list, SELF_DRIVE
+    global ping_start, calc_list, SELF_DRIVE, JOYSTICK
     
     if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
@@ -280,7 +280,7 @@ async def on_connect():
     print("avg rtt")
     event_loop.create_task(get_average_rtt())
 
-async def main():
+async def bt_main():
     global server_instance, event_loop
 
     event_loop = asyncio.get_running_loop()

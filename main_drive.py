@@ -1,25 +1,27 @@
-from manual_drive.manual_mode import Manual
-from manual_drive.dc_motor import Motor
+from manual_drive.manual_mode import Manual, DriveBase
 from initialization.init import get_distance_sensors, get_wheel_motors
 from automatic_drive.automatic_drive import auto_drive
+import asyncio
+from car_bluetooth import bt_pos
 
-SELF_DRIVE = True
-def main():
-    #init motor pins
-    print("initializing motors")
+async def main_loop():
     left_motor, right_motor = get_wheel_motors()
-    print("initializing sensors")
     sonar_left, sonar_right = get_distance_sensors()
+    drive = DriveBase(left_motor, right_motor)
+    manual_mode = Manual(drive)
 
-    #wait until bluetooth gets called
-    
-    #while not 0.5 meters away: run self_drive
-    if SELF_DRIVE:
-        auto_drive(left_motor=left_motor, right_motor=right_motor, sonar_left=sonar_left, sonar_right=sonar_right)
+    # Start BLE server
+    asyncio.create_task(bt_pos.bt_main())
 
-    #run manual_mode
-    if SELF_DRIVE is False:
-        pass
+    while True:
+        print("mode:", bt_pos.SELF_DRIVE)
+        if bt_pos.SELF_DRIVE:
+            auto_drive(left_motor, right_motor, sonar_left, sonar_right)
+            await asyncio.sleep(0.1)
+        else:
+            print(bt_pos.JOYSTICK)
+            manual_mode.joystick(bt_pos.JOYSTICK)
+            await asyncio.sleep(0.05)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main_loop())
