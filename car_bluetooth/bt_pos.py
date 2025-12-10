@@ -273,12 +273,11 @@ async def on_connect():
         await asyncio.sleep(1.0)
     print("Client connected!")
     await asyncio.sleep(2.0)
-    print("next ping")
     event_loop.create_task(next_ping())
-    print("send data")
     event_loop.create_task(send_data())
-    print("avg rtt")
     event_loop.create_task(get_average_rtt())
+    event_loop.create_task(update_position())
+    event_loop.create_task(calculate_target())
 
 async def bt_main():
     global server_instance, event_loop
@@ -343,6 +342,6 @@ async def bt_main():
 
 if __name__ == "__main__":
     # Example: sudo python3 ble_pi_pinger_server.py
-    asyncio.run(main())
+    asyncio.run(bt_main())
 
 
