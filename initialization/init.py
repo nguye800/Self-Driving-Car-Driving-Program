@@ -96,3 +96,23 @@ def get_wheel_motors(): # fix
     )
     
     return left, right
+
+
+#test
+import board
+import adafruit_vl53l0x
+import busio
+
+i2c = busio.I2C(board.SCL, board.SDA)
+vl53l0x = adafruit_vl53l0x.VL53L0X(i2c)
+
+# Set measurement range (optional, default is good)
+# vl53l0x.measurement_timing_budget = 20000 # 20ms
+
+print("VL53L0X Sensor Test")
+while True:
+    distance_mm = vl53l0x.distance # Get distance in millimeters
+    print(f"Distance: {distance_mm} mm")
+    # print(f"Distance: {vl53l0x.range_status} status") # Check status
+    import time
+    time.sleep(0.1)
