@@ -1,3 +1,5 @@
+#ssh key ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOyhVxdRlE5gEh/nHRHUqj3kpVubxYNHIox11eHySw8N macbook
+
 import time
 import board
 import busio
