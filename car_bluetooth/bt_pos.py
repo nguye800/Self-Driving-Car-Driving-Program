@@ -10,6 +10,10 @@ from bless import (
 import json
 import numpy as np
 import math
+from manual_drive.manual_mode import Manual, DriveBase
+from initialization.init import get_distance_sensors, get_wheel_motors
+from automatic_drive.automatic_drive import auto_drive
+import asyncio
 # from gpiozero import Motors
 
 # --- UUIDs from your TSX file ---
@@ -100,10 +104,10 @@ async def get_average_rtt(samples=5):
             calc_list.clear()
             
             avg_rtt = sum(current_samples) / len(current_samples)
-            print(f"Average RTT: {avg_rtt:.2f} ms")
+            # print(f"Average RTT: {avg_rtt:.2f} ms")
             rtt = avg_rtt - SOFTWARE_LATENCY_MS
             target_dist = rtt / 1_000.0 * 299792458 / 2
-            print(f"Estimated Distance: {target_dist:.2f} m")
+            # print(f"Estimated Distance: {target_dist:.2f} m")
         
         await asyncio.sleep(0.5)
 
@@ -229,7 +233,7 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
         
         rtt = (time.monotonic() - ping_start) * 1000
         if ping_start > 0:
-            print(f"RTT: {rtt:.2f} ms")
+            # print(f"RTT: {rtt:.2f} ms")
             calc_list.append(rtt)
     elif characteristic.uuid == COMMAND_CHAR_UUID:
         # Received a command from the app.
@@ -260,14 +264,16 @@ async def send_data():
         if is_client_connected():
             try:
                 # Send distance and direction in regualar intervals
-                if target_dist < 2.0:
+                if target_dist < 2.0 and target_dist > -2:
                     SELF_DRIVE = False
                 
                 data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                if SELF_DRIVE:
-                    mode = "AUTO"
-                else:
+                if SELF_DRIVE == None:
+                    mode = "None"
+                elif SELF_DRIVE == False:
                     mode = "MANUAL"
+                else:
+                    SELF_DRIVE = "AUTO"
                 message = {
                     "mode": mode,
                     "distance": round(target_dist, 2),
@@ -294,6 +300,28 @@ async def on_connect():
     event_loop.create_task(get_average_rtt())
     event_loop.create_task(update_position())
     event_loop.create_task(calculate_target())
+    event_loop.create_task(main_loop())
+
+DEFAULT = {"x": "0.0", "y": "0.0"}
+
+async def main_loop():
+    left_motor, right_motor = get_wheel_motors()
+    # sonar_left, sonar_right = get_distance_sensors()
+    manual_mode = Manual(left_motor, right_motor)
+
+    while True:
+        # print("mode:", SELF_DRIVE)
+        if SELF_DRIVE:
+            # auto_drive(left_motor, right_motor, sonar_left, sonar_right)
+            await asyncio.sleep(0.1)
+        else:
+            if JOYSTICK == None:
+                manual_mode.joystick(DEFAULT)
+            else:
+                print("joystick input", JOYSTICK)
+                manual_mode.joystick(JOYSTICK)
+                await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
 
 async def bt_main():
     global server_instance, event_loop, connection_ready_event
