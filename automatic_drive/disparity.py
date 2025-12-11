@@ -10,14 +10,14 @@ from picamera2 import Picamera2
 
 def rpi_camera(camera):
     picam2 = Picamera2(camera)
-    picam2.configure(picam2.create_preview_configuration(raw={"size":(4608,2592)},main={"format":'RGB888',"size": (1920,1080)}))
+    picam2.configure(picam2.create_preview_configuration(raw={"size":(4608,2592)},main={"format":'RGB888',"size": (1280,720)}))
     picam2.start()
 
     return picam2
     
 def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):
     """Compute disparity map using Semi-Global Block Matching"""
-    blocksize = max(3, blocksize | 1)
+    blocksize = 5 # max(3, blocksize | 1)
     P1 = 8 * blocksize * blocksize
     P2 = 32 * blocksize * blocksize
     
@@ -27,7 +27,7 @@ def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):
         blockSize=blocksize,
         P1=P1, P2=P2,
         disp12MaxDiff=1,
-        uniquenessRatio=10,
+        uniquenessRatio=12,
         speckleWindowSize=100,
         speckleRange=2,
         preFilterCap=31,
@@ -82,9 +82,7 @@ def save_debug_depth_map(depth, w, h, step_idx, folder="depth_debug"):
     depth_bar_norm = np.clip(depth_vals / 5.0, 0, 1)
     depth_bar_norm = (depth_bar_norm * 255).astype(np.uint8)
 
-    depth_bar_color = cv2.applyColorMap(
-        255 - depth_bar_norm, cv2.COLORMAP_JET
-    )
+    depth_bar_color = cv2.applyColorMap(depth_bar_norm, cv2.COLORMAP_JET)
 
     # repeat horizontally to desired width
     depth_bar_color = np.repeat(depth_bar_color, bar_width, axis=1)
@@ -131,7 +129,7 @@ def summarize_region_depth(region_depth, min_depth=0.1, max_depth=5.0,
     if vals.size == 0:
         return default_val
 
-    # How many pixels are "near"?
+    # How many pixels are "near"?1, 
     near_mask = vals < near_threshold
     near_fraction = float(np.count_nonzero(near_mask)) / float(vals.size)
 
@@ -154,6 +152,7 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
     R = np.frombuffer(imgR, np.uint8).reshape((h, w, 4))
     gL = cv2.cvtColor(L, cv2.COLOR_BGRA2GRAY)
     gR = cv2.cvtColor(R, cv2.COLOR_BGRA2GRAY)
+    gR = np.roll(grayR, 7, axis=0)
 
     if STEREO_DECIMATE > 1:
         gL = cv2.resize(gL, (w//STEREO_DECIMATE, h//STEREO_DECIMATE))
@@ -201,17 +200,27 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
 
 
 if __name__ == "__main__":
+    VERTICAL_OFFSET = 7
+
     camR = rpi_camera(0)
     camL = rpi_camera(1)
 
-    time.sleep(3) # let cameras settle
-
+    time.sleep(4) # let cameras settle
+    # while True:
     frameL = camL.capture_array()
     frameR = camR.capture_array()
     grayL = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
     grayR = cv2.cvtColor(frameR, cv2.COLOR_BGR2GRAY)
-    disp = compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=256, blocksize=5)
-    depth = np.zeros_like(disp, np.float32)
+    grayR = np.roll(grayR, VERTICAL_OFFSET, axis=0)
+
+        # cv2.imshow("left", grayL)
+        # cv2.waitKey(1)
+        # cv2.imshow("right", grayR)
+        # cv2.waitKey(1)
+
+    disp = compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5)
+    disp_float = cv2.medianBlur(disp, 3)
+    depth = np.zeros_like(disp_float, np.float32)
     m = disp > 1.0
     depth[m] = (0.055 * 2571) / disp[m]
     depth = np.clip(depth, 0, 5.0)

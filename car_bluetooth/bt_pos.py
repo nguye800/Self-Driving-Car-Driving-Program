@@ -89,7 +89,7 @@ async def get_average_rtt(samples=5):
     """
     Measures and averages a number of RTT samples.
     """
-    global calc_list, event_loop, target_dist
+    global calc_list, event_loop, target_dist, SOFTWARE_LATENCY_MS, SELF_DRIVE
     
     while True:        
         # Wait for enough RTT samples while connected
@@ -104,7 +104,7 @@ async def get_average_rtt(samples=5):
             calc_list.clear()
             
             avg_rtt = sum(current_samples) / len(current_samples)
-            print(f"Average RTT: {avg_rtt:.2f} ms")
+            print(f"Average RTT: {avg_rtt:.2f} ms, mode: {SELF_DRIVE}")
             rtt = abs(avg_rtt - SOFTWARE_LATENCY_MS)
             target_dist = rtt / 1_000.0 * 299792458 / 2
             print(f"Estimated Distance: {target_dist:.2f} m")
@@ -136,46 +136,47 @@ def get_intersections(p1, p2):
     return [pt1, pt2]
 
 async def update_position():
-    global curr_position, curr_deg, positions, target_dist
+    global curr_position, curr_deg, positions, target_dist, SELF_DRIVE, CAR_SPEED_MPS, TURN_SPEED
     
     while True:
         # Wait for the next "Move" command batch
-        r0 = target_dist
-        await asyncio.sleep(2)
-        r1 = target_dist
-        await asyncio.sleep(2)
-        r2 = target_dist
-        await asyncio.sleep(2)
-        
-        move_history_copy = [("FORWARD", 2.0, r0), ("RIGHT", 2.0, r1), ("FORWARD", 2.0, r2)]
-        
-        print(f"--- Starting Movement Sequence ---")
+        if SELF_DRIVE == True:
+            r0 = target_dist
+            await asyncio.sleep(2)
+            r1 = target_dist
+            await asyncio.sleep(2)
+            r2 = target_dist
+            await asyncio.sleep(2)
+            
+            move_history_copy = [("FORWARD", 2.0, r0), ("RIGHT", 2.0, r1), ("FORWARD", 2.0, r2)]
+            
+            print(f"--- Starting Movement Sequence ---")
 
-        for i in move_history_copy:
-            movement, duration, dist = i
-            
-            # 1. Update the Car's Mathematical Position
-            if movement == "FORWARD":
-                rad = np.deg2rad(curr_deg)
-                direction_vector = np.array([np.cos(rad), np.sin(rad)])
-                distance = CAR_SPEED_MPS * duration
-                curr_position += direction_vector * distance
-            elif movement == "BACKWARD":
-                rad = np.deg2rad(curr_deg)
-                direction_vector = np.array([np.cos(rad), np.sin(rad)])
-                distance = CAR_SPEED_MPS * duration
-                curr_position -= direction_vector * distance
-            elif movement == "LEFT":
-                angle_change = TURN_SPEED * duration
-                curr_deg = (curr_deg - angle_change) % 360
-            elif movement == "RIGHT":
-                angle_change = TURN_SPEED * duration
-                curr_deg = (curr_deg + angle_change) % 360
-            
-            positions.append([curr_position[0], curr_position[1], dist])
-            
-            print(f"Recorded: Pos={curr_position}, Dist={dist:.2f}")
-            await asyncio.sleep(0.1)
+            for i in move_history_copy:
+                movement, duration, dist = i
+                
+                # 1. Update the Car's Mathematical Position
+                if movement == "FORWARD":
+                    rad = np.deg2rad(curr_deg)
+                    direction_vector = np.array([np.cos(rad), np.sin(rad)])
+                    distance = CAR_SPEED_MPS * duration
+                    curr_position += direction_vector * distance
+                elif movement == "BACKWARD":
+                    rad = np.deg2rad(curr_deg)
+                    direction_vector = np.array([np.cos(rad), np.sin(rad)])
+                    distance = CAR_SPEED_MPS * duration
+                    curr_position -= direction_vector * distance
+                elif movement == "LEFT":
+                    angle_change = TURN_SPEED * duration
+                    curr_deg = (curr_deg - angle_change) % 360
+                elif movement == "RIGHT":
+                    angle_change = TURN_SPEED * duration
+                    curr_deg = (curr_deg + angle_change) % 360
+                
+                positions.append([curr_position[0], curr_position[1], dist])
+                
+                print(f"Recorded: Pos={curr_position}, Dist={dist:.2f}")
+                await asyncio.sleep(0.1)
 
 async def calculate_target():
     global positions, curr_position, curr_deg, target_deg, target
@@ -234,12 +235,12 @@ async def calculate_target():
                 rel_deg = abs_deg - curr_deg
                 target_deg = (rel_deg + 180) % 360 - 180
                 
-                print(f"TRIANGLE CENTROID: {target} (Used {len(triangle_points)} points)")
+                print(f"TRIANGLE CENTROID: {target}")
             else:
                 print("Triangulation failed: No circles intersected.")
 
 async def next_ping():
-    global server_instance, ping_start
+    global server_instance, ping_start, SERVICE_UUID, PING_CHAR_UUID
     
     while True:
         if is_client_connected():
@@ -261,7 +262,7 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
     Called when the client writes to a characteristic.
     This is our "PING" handler.
     """
-    global ping_start, calc_list, SELF_DRIVE, JOYSTICK
+    global ping_start, calc_list, SELF_DRIVE, JOYSTICK, PONG_CHAR_UUID, COMMAND_CHAR_UUID
     
     if characteristic.uuid == PONG_CHAR_UUID:
         # Received a PING from the app.
@@ -293,23 +294,22 @@ def write_recv(characteristic: Any, value: bytearray, **kwargs):
             print(f"Received invalid command data: {value}")
         
 async def send_data():
-    global server_instance, target_dist, target_deg
+    global server_instance, target_dist, target_deg, SELF_DRIVE, SERVICE_UUID, DATA_CHAR_UUID
 
     while True:
         if is_client_connected():
             try:
                 # Send distance and direction in regualar intervals
-                if target_dist < 2.0 and target_dist > -2.0:
+                if target_dist < 2.0 and target_dist != 0:
                     SELF_DRIVE = False
                     print("\nTarget too close, switching to MANUAL mode.\n")
                 
                 data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
-                if SELF_DRIVE == None:
-                    mode = "None"
-                elif SELF_DRIVE == False:
-                    mode = "MANUAL"
+                if SELF_DRIVE == True:
+                    mode = "AUTO"
                 else:
-                    SELF_DRIVE = "AUTO"
+                    mode = "MANUAL"
+
                 message = {
                     "mode": mode,
                     "distance": round(target_dist, 2),
@@ -337,11 +337,12 @@ async def on_connect():
     event_loop.create_task(get_average_rtt())
     event_loop.create_task(update_position())
     event_loop.create_task(calculate_target())
-    event_loop.create_task(main_loop())
+    # event_loop.create_task(main_loop())
 
 DEFAULT = {"x": "0.0", "y": "0.0"}
 
 async def main_loop():
+    global DEFAULT, JOYSTICK, SELF_DRIVE
     left_motor, right_motor = get_wheel_motors()
     # sonar_left, sonar_right = get_distance_sensors()
     manual_mode = Manual(left_motor, right_motor)
@@ -361,7 +362,7 @@ async def main_loop():
         await asyncio.sleep(0.1)
 
 async def bt_main():
-    global server_instance, event_loop, connection_ready_event
+    global server_instance, event_loop, connection_ready_event, SERVICE_UUID, PING_CHAR_UUID, PONG_CHAR_UUID, COMMAND_CHAR_UUID, DATA_CHAR_UUID
 
     event_loop = asyncio.get_running_loop()
     connection_ready_event = asyncio.Event()
