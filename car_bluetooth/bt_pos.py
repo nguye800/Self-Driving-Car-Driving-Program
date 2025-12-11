@@ -212,6 +212,8 @@ async def update_position():
                 
                 print(f"Recorded: Pos={curr_position}, Dist={dist:.2f}")
                 await asyncio.sleep(0.1)
+        else:
+            await asyncio.sleep(1)
 
 async def calculate_target():
     global positions, curr_position, curr_deg, target_deg, target
@@ -219,7 +221,7 @@ async def calculate_target():
     while True:
         await asyncio.sleep(1)
         
-        if len(positions) >= 3:
+        if len(positions) >= 3 and SELF_DRIVE == True:
             # Get 3 diverse points
             c1 = positions[-1] 
             c2 = positions[-2] 
