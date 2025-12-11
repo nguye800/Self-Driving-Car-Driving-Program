@@ -112,28 +112,63 @@ async def get_average_rtt(samples=5):
         await asyncio.sleep(0.5)
 
 def get_intersections(p1, p2):
-    """ Returns the two intersection points of circles p1 and p2 """
+    """
+    Returns intersection points. If circles don't intersect, returns
+    the 'closest approach' point repeated twice.
+    """
     x1, y1, r1 = p1
     x2, y2, r2 = p2
     d = math.sqrt((x1-x2)**2 + (y1-y2)**2)
     
-    # 1. Check for non-intersecting circles (Too far apart or one inside other)
-    if d > r1 + r2 or d < abs(r1 - r2) or d == 0:
-        return []
-    
-    a = (r1**2 - r2**2 + d**2) / (2*d)
-    h = math.sqrt(max(0, r1**2 - a**2))
-    
-    x2_rel = x2 - x1
-    y2_rel = y2 - y1
-    
-    x3 = x1 + a * (x2_rel / d)
-    y3 = y1 + a * (y2_rel / d)
-    
-    pt1 = np.array([x3 + h * (y2_rel / d), y3 - h * (x2_rel / d)])
-    pt2 = np.array([x3 - h * (y2_rel / d), y3 + h * (x2_rel / d)])
-    
-    return [pt1, pt2]
+    # CASE 1: Concentric (Same Center)
+    if d == 0:
+        # Best guess is the center itself
+        return [np.array([x1, y1]), np.array([x1, y1])]
+
+    # Prepare vector from P1 to P2
+    v = np.array([x2-x1, y2-y1])
+    u = v / d # Unit vector
+
+    # CASE 2: Disjoint (Too far apart)
+    if d > r1 + r2:
+        # Find the gap between the circles
+        p1_edge = np.array([x1, y1]) + u * r1
+        p2_edge = np.array([x2, y2]) - u * r2
+        mid = (p1_edge + p2_edge) / 2
+        return [mid, mid]
+
+    # CASE 3: Contained (One inside other)
+    elif d < abs(r1 - r2):
+        # Find the narrowest wall between them
+        # We check the line passing through both centers
+        
+        # Points on C1 intersecting the line
+        c1_a = np.array([x1, y1]) + u * r1
+        c1_b = np.array([x1, y1]) - u * r1
+        
+        # Points on C2 intersecting the line
+        c2_a = np.array([x2, y2]) + u * r2
+        c2_b = np.array([x2, y2]) - u * r2
+        
+        # Find the pair with minimum distance
+        pairs = [(c1_a, c2_a), (c1_a, c2_b), (c1_b, c2_a), (c1_b, c2_b)]
+        best_pair = min(pairs, key=lambda p: np.linalg.norm(p[0]-p[1]))
+        
+        mid = (best_pair[0] + best_pair[1]) / 2
+        return [mid, mid]
+
+    # CASE 4: Normal Intersection
+    else:
+        a = (r1**2 - r2**2 + d**2) / (2*d)
+        h = math.sqrt(max(0, r1**2 - a**2))
+        x2_rel = x2 - x1
+        y2_rel = y2 - y1
+        x3 = x1 + a * (x2_rel / d)
+        y3 = y1 + a * (y2_rel / d)
+        
+        pt1 = np.array([x3 + h * (y2_rel / d), y3 - h * (x2_rel / d)])
+        pt2 = np.array([x3 - h * (y2_rel / d), y3 + h * (x2_rel / d)])
+        return [pt1, pt2]
 
 async def update_position():
     global curr_position, curr_deg, positions, target_dist, SELF_DRIVE, CAR_SPEED_MPS, TURN_SPEED
