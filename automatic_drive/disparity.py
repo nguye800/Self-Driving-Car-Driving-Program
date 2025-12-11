@@ -3,6 +3,7 @@
 # ----------------------------
 import numpy as np
 import cv2
+import time
 import os
 from automatic_drive import config
 from picamera2 import Picamera2
@@ -42,37 +43,77 @@ def compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=128, blocksize=5):
   
 def save_debug_depth_map(depth, w, h, step_idx, folder="depth_debug"):
     os.makedirs(folder, exist_ok=True)
-    
-    # Save raw depths
+
+    # ---------- save raw depths ----------
     npy_path = os.path.join(folder, f"raw_depth_{step_idx:05d}.npy")
-    # depth is already a float32 array; save directly
-    np.save(npy_path, depth)
+    np.save(npy_path, depth.astype(np.float32))
     print(f"[DEBUG] Saved raw depth array: {npy_path}")
 
+    # ---------- normalize depth for visualization ----------
     valid = depth > 0.1
     depth_norm = np.zeros_like(depth, dtype=np.uint8)
 
     if np.any(valid):
         dv = depth[valid]
 
-        # robust min/max → ignore extreme outliers
+        # robust scaling for image contrast
         d_min, d_max = np.percentile(dv, [5, 95])
         if d_max <= d_min:
             d_max = d_min + 1e-3
 
         dv_clipped = np.clip(dv, d_min, d_max)
 
-        # we want RED = close, BLUE = far:
-        # normalized t: 0 (far) → 1 (near)
+        # RED = near, BLUE = far
         t = 1.0 - (dv_clipped - d_min) / (d_max - d_min)
         depth_norm[valid] = (t * 255).astype(np.uint8)
 
     depth_color = cv2.applyColorMap(255 - depth_norm, cv2.COLORMAP_JET)
 
+    # ======================================================
+    #                CREATE COLORBAR (0–5 m)
+    # ======================================================
+    bar_width = 40
+    bar_height = depth_color.shape[0]
+
+    # depth values from 5m (top) → 0m (bottom)
+    depth_vals = np.linspace(5.0, 0.0, bar_height).reshape(-1, 1)
+
+    # normalize to [0,255] using fixed scale
+    depth_bar_norm = np.clip(depth_vals / 5.0, 0, 1)
+    depth_bar_norm = (depth_bar_norm * 255).astype(np.uint8)
+
+    depth_bar_color = cv2.applyColorMap(
+        255 - depth_bar_norm, cv2.COLORMAP_JET
+    )
+
+    # repeat horizontally to desired width
+    depth_bar_color = np.repeat(depth_bar_color, bar_width, axis=1)
+
+    # ---------- add tick labels ----------
+    for meters in range(0, 6):
+        y = int((1.0 - meters / 5.0) * (bar_height - 1))
+        cv2.line(depth_bar_color, (0, y), (10, y), (255, 255, 255), 1)
+        cv2.putText(
+            depth_bar_color,
+            f"{meters}m",
+            (12, y + 4),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.35,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
+    # ======================================================
+    #                COMBINE IMAGE + BAR
+    # ======================================================
+    combined = np.hstack([depth_color, depth_bar_color])
+
     # ---------- save ----------
     filename = os.path.join(folder, f"depth_{step_idx:05d}.png")
-    cv2.imwrite(filename, depth_color)
-    print(f"[DEBUG] Saved depth map: {filename}")
+    cv2.imwrite(filename, combined)
+    print(f"[DEBUG] Saved depth map with colorbar: {filename}")
+
 
 
 STEREO_DECIMATE = 1
@@ -158,34 +199,22 @@ def get_obstacle_readings_from_stereo(camL, camR, baseline=0.055, focal_length=2
 
     return center, left, right
 
+
 if __name__ == "__main__":
     camR = rpi_camera(0)
     camL = rpi_camera(1)
 
-    while True:
-        frameL = camL.capture_array()
-        frameR = camR.capture_array()
-        grayL = cv2.cvtColor(frameL, cv2.COLOR_BGRA2GRAY)
-        grayR = cv2.cvtColor(frameR, cv2.COLOR_BGRA2GRAY)
+    time.sleep(3) # let cameras settle
 
-        # # ---------- SIDE-BY-SIDE DISPLAY ----------
-        # # resize for easier viewing (optional)
-        # scale = 0.4
-        # gL_small = cv2.resize(grayL, None, fx=scale, fy=scale)
-        # gR_small = cv2.resize(grayR, None, fx=scale, fy=scale)
-
-        # # concatenate horizontally
-        # side_by_side = np.hstack((gL_small, gR_small))
-
-        # cv2.imshow("Left | Right", side_by_side)
-        # cv2.waitKey(1)
-        # continue
-        # # ------------------------------------------
-
-        disp = compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=256, blocksize=5)
-        disp_vis = cv2.normalize(disp, None, 0, 255, cv2.NORM_MINMAX)
-        disp_vis = disp_vis.astype(np.uint8)
-        depth_color = cv2.applyColorMap(255 - disp_vis, cv2.COLORMAP_JET)
-        cv2.imshow("disp", depth_color)
-        cv2.waitKey(1)
+    frameL = camL.capture_array()
+    frameR = camR.capture_array()
+    grayL = cv2.cvtColor(frameL, cv2.COLOR_BGR2GRAY)
+    grayR = cv2.cvtColor(frameR, cv2.COLOR_BGR2GRAY)
+    disp = compute_dispmap_sgbm(grayL, grayR, minDisp=0, numDisp=256, blocksize=5)
+    depth = np.zeros_like(disp, np.float32)
+    m = disp > 1.0
+    depth[m] = (0.055 * 2571) / disp[m]
+    depth = np.clip(depth, 0, 5.0)
+    
+    save_debug_depth_map(depth, depth.shape[1], depth.shape[0], 0)
 
