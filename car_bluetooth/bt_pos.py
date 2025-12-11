@@ -43,7 +43,7 @@ target_dist = 0.0
 CAR_SPEED_MPS = 0.5  # Meters per second, must be calibrated
 TURN_DURATION_90 = 1.2 # Time needed to complete a 90-degree turn, must be calibrated
 TURN_SPEED = 90 / TURN_DURATION_90
-SOFTWARE_LATENCY_MS = 50.0  
+SOFTWARE_LATENCY_MS = 53.0  
 
 def is_client_connected() -> bool:
     """
@@ -104,104 +104,139 @@ async def get_average_rtt(samples=5):
             calc_list.clear()
             
             avg_rtt = sum(current_samples) / len(current_samples)
-            # print(f"Average RTT: {avg_rtt:.2f} ms")
-            rtt = avg_rtt - SOFTWARE_LATENCY_MS
+            print(f"Average RTT: {avg_rtt:.2f} ms")
+            rtt = abs(avg_rtt - SOFTWARE_LATENCY_MS)
             target_dist = rtt / 1_000.0 * 299792458 / 2
-            # print(f"Estimated Distance: {target_dist:.2f} m")
+            print(f"Estimated Distance: {target_dist:.2f} m")
         
         await asyncio.sleep(0.5)
 
+def get_intersections(p1, p2):
+    """ Returns the two intersection points of circles p1 and p2 """
+    x1, y1, r1 = p1
+    x2, y2, r2 = p2
+    d = math.sqrt((x1-x2)**2 + (y1-y2)**2)
+    
+    # 1. Check for non-intersecting circles (Too far apart or one inside other)
+    if d > r1 + r2 or d < abs(r1 - r2) or d == 0:
+        return []
+    
+    a = (r1**2 - r2**2 + d**2) / (2*d)
+    h = math.sqrt(max(0, r1**2 - a**2))
+    
+    x2_rel = x2 - x1
+    y2_rel = y2 - y1
+    
+    x3 = x1 + a * (x2_rel / d)
+    y3 = y1 + a * (y2_rel / d)
+    
+    pt1 = np.array([x3 + h * (y2_rel / d), y3 - h * (x2_rel / d)])
+    pt2 = np.array([x3 - h * (y2_rel / d), y3 + h * (x2_rel / d)])
+    
+    return [pt1, pt2]
+
 async def update_position():
-    global curr_position, curr_deg, positions, SELF_DRIVE
+    global curr_position, curr_deg, positions, target_dist
     
     while True:
+        # Wait for the next "Move" command batch
+        r0 = target_dist
         await asyncio.sleep(2)
-        move_history.clear()
-        for i in move_history:
-            movement, duration = i
+        r1 = target_dist
+        await asyncio.sleep(2)
+        r2 = target_dist
+        await asyncio.sleep(2)
+        
+        move_history_copy = [("FORWARD", 2.0, r0), ("RIGHT", 2.0, r1), ("FORWARD", 2.0, r2)]
+        
+        print(f"--- Starting Movement Sequence ---")
+
+        for i in move_history_copy:
+            movement, duration, dist = i
+            
+            # 1. Update the Car's Mathematical Position
             if movement == "FORWARD":
                 rad = np.deg2rad(curr_deg)
                 direction_vector = np.array([np.cos(rad), np.sin(rad)])
                 distance = CAR_SPEED_MPS * duration
                 curr_position += direction_vector * distance
-                positions.append(curr_position.tolist())
             elif movement == "BACKWARD":
                 rad = np.deg2rad(curr_deg)
                 direction_vector = np.array([np.cos(rad), np.sin(rad)])
                 distance = CAR_SPEED_MPS * duration
                 curr_position -= direction_vector * distance
-                positions.append(curr_position.tolist())
             elif movement == "LEFT":
                 angle_change = TURN_SPEED * duration
                 curr_deg = (curr_deg - angle_change) % 360
             elif movement == "RIGHT":
                 angle_change = TURN_SPEED * duration
                 curr_deg = (curr_deg + angle_change) % 360
+            
+            positions.append([curr_position[0], curr_position[1], dist])
+            
+            print(f"Recorded: Pos={curr_position}, Dist={dist:.2f}")
+            await asyncio.sleep(0.1)
 
 async def calculate_target():
-    global curr_position, positions, curr_deg, target, target_deg, target_dist
-
+    global positions, curr_position, curr_deg, target_deg, target
+    
     while True:
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
+        
         if len(positions) >= 3:
-            p1 = positions[-1] 
-            p2 = positions[-3] # Use -3 to get some physical separation
+            # Get 3 diverse points
+            c1 = positions[-1] 
+            c2 = positions[-2] 
+            c3 = positions[-3]
             
-            x1, y1, r1 = p1
-            x2, y2, r2 = p2
+            triangle_points = []
             
-            # Distance between the two car positions
-            d = math.sqrt((x1-x2)**2 + (y1-y2)**2)
+            # --- 1. Intersect C1 & C2 ---
+            pts_12 = get_intersections(c1, c2)
+            if pts_12:
+                # Disambiguate: Which point is closer to the edge of C3?
+                # We calculate |distance_to_center_C3 - radius_C3|
+                err0 = abs(math.hypot(pts_12[0][0]-c3[0], pts_12[0][1]-c3[1]) - c3[2])
+                err1 = abs(math.hypot(pts_12[1][0]-c3[0], pts_12[1][1]-c3[1]) - c3[2])
+                # Keep the one with lower error
+                triangle_points.append(pts_12[0] if err0 < err1 else pts_12[1])
+
+            # --- 2. Intersect C2 & C3 ---
+            pts_23 = get_intersections(c2, c3)
+            if pts_23:
+                # Disambiguate using C1
+                err0 = abs(math.hypot(pts_23[0][0]-c1[0], pts_23[0][1]-c1[1]) - c1[2])
+                err1 = abs(math.hypot(pts_23[1][0]-c1[0], pts_23[1][1]-c1[1]) - c1[2])
+                triangle_points.append(pts_23[0] if err0 < err1 else pts_23[1])
+
+            # --- 3. Intersect C1 & C3 ---
+            pts_13 = get_intersections(c1, c3)
+            if pts_13:
+                # Disambiguate using C2
+                err0 = abs(math.hypot(pts_13[0][0]-c2[0], pts_13[0][1]-c2[1]) - c2[2])
+                err1 = abs(math.hypot(pts_13[1][0]-c2[0], pts_13[1][1]-c2[1]) - c2[2])
+                triangle_points.append(pts_13[0] if err0 < err1 else pts_13[1])
             
-            # Trilateration logic:
-            # If d > r1 + r2: Circles don't touch (too far)
-            # If d < |r1 - r2|: One circle inside other (error)
-            # If d == 0: Car hasn't moved
-            
-            if d > 0.1 and d <= (r1 + r2) and d >= abs(r1 - r2):
-                # Calculate intersection points
-                a = (r1**2 - r2**2 + d**2) / (2*d)
-                h = math.sqrt(max(0, r1**2 - a**2))
+            # --- 4. Average the Triangle ---
+            if len(triangle_points) > 0:
+                # Calculate Centroid
+                sum_x = sum(p[0] for p in triangle_points)
+                sum_y = sum(p[1] for p in triangle_points)
                 
-                x2_rel = x2 - x1
-                y2_rel = y2 - y1
+                avg_x = sum_x / len(triangle_points)
+                avg_y = sum_y / len(triangle_points)
                 
-                # Point 2 coordinates relative to Point 1
-                x3 = x1 + a * (x2_rel / d)
-                y3 = y1 + a * (y2_rel / d)
+                target = np.array([avg_x, avg_y])
                 
-                # Two possible intersection points
-                target_x_1 = x3 + h * (y2_rel / d)
-                target_y_1 = y3 - h * (x2_rel / d)
-                
-                target_x_2 = x3 - h * (y2_rel / d)
-                target_y_2 = y3 + h * (x2_rel / d)
-                
-                # Disambiguation:
-                # We assume the target is roughly in front of us or use a 3rd point.
-                # For simplicity: Use the point closer to our current heading.
-                
-                # Let's just pick one for now (or average them if they are close)
-                target_coords = np.array([target_x_1, target_y_1])
-                
-                # Calculate Angle to Target relative to Car's Heading
-                # Absolute angle to target
-                abs_angle = math.atan2(target_coords[1] - curr_position[1], 
-                                       target_coords[0] - curr_position[0])
+                # Calc Angle
+                abs_angle = math.atan2(avg_y - curr_position[1], avg_x - curr_position[0])
                 abs_deg = np.degrees(abs_angle)
-                
-                # Relative angle (Steering Error)
-                # If Car is 90 deg, Target is 100 deg -> Rel is +10 (Right)
                 rel_deg = abs_deg - curr_deg
-                
-                # Normalize to -180 to 180
                 target_deg = (rel_deg + 180) % 360 - 180
                 
-                print(f"TRIANGULATED: RelAngle: {target_deg:.2f}, Coords: {target_coords}")
-
-        await asyncio.sleep(1)
-
-        
+                print(f"TRIANGLE CENTROID: {target} (Used {len(triangle_points)} points)")
+            else:
+                print("Triangulation failed: No circles intersected.")
 
 async def next_ping():
     global server_instance, ping_start
@@ -264,8 +299,9 @@ async def send_data():
         if is_client_connected():
             try:
                 # Send distance and direction in regualar intervals
-                if target_dist < 2.0 and target_dist > -2:
+                if target_dist < 2.0 and target_dist > -2.0:
                     SELF_DRIVE = False
+                    print("\nTarget too close, switching to MANUAL mode.\n")
                 
                 data_char = server_instance.get_characteristic(DATA_CHAR_UUID)
                 if SELF_DRIVE == None:
@@ -277,7 +313,8 @@ async def send_data():
                 message = {
                     "mode": mode,
                     "distance": round(target_dist, 2),
-                    "direction": round(target_deg, 2)
+                    "direction": round(target_deg, 2),
+                    "target": target.tolist()
                 }
                 message = json.dumps(message)
                 data_char.value = message.encode('utf-8')
@@ -376,7 +413,6 @@ async def bt_main():
         await server_instance.start()
 
         asyncio.create_task(on_connect())
-
         await asyncio.Event().wait() 
         
     except KeyboardInterrupt:
